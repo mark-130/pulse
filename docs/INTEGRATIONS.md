@@ -7,18 +7,17 @@
   - Today: get_scheduled_workouts, get_workout_by_id, get_training_readiness, get_morning_training_readiness, get_sleep_summary, get_hrv_data, get_rhr_day, get_body_battery, get_stats
   - Load and trends: get_training_status, get_training_load_balance, get_training_load_trend, get_vo2max_trend, get_running_tolerance_trend, get_endurance_score, get_race_predictions
   - History: get_activities_by_date, get_activity, get_activity_splits, get_activity_hr_in_timezones
-  - Races: get_calendar_events
+  - Races: get_calendar_events (synced by the Phase 1 Garmin job into the race table: title, date, start_time_local, time_zone, distance_m, goal_time_seconds, is_race, primary_event, subscribed, location, url, event_uuid). The Garmin calendar is read only for NGtive Split.
 - Write tools, Phase 3 onwards, through proposals only: schedule_workout, reschedule_workout, unschedule_workout.
 - Never used in v1: delete_*, upload_*, push_workout_to_device, create_* workouts, nutrition, weigh-ins.
 - Phase 0 lists the server's tools and diffs them against this file. Tool names may drift.
 - Store raw tool output in garmin_snapshot and validate with zod when reading.
 
-## Google Calendar (personal Google account)
+## Google Calendar (Phase 5, scope to be agreed)
+Not used in v1. Races come from the Garmin calendar (D22). Notes kept for when Phase 5 is scoped:
 - OAuth 2.0 web client. Publish the consent screen to "In production" (personal use, the unverified warning is expected), because Testing mode refresh tokens expire after 7 days.
-- Scopes: Phase 2 calendar.readonly. Phase 3 adds calendar.events and calendar.app.created (verify names against Google docs at build time). Re-consent at Phase 3 is expected.
+- Likely uses: busy time from a personal calendar for the readiness verdict, and mirrored planned workouts on an app-created "Pulse Training" calendar (proposals only, confirm tap). Scopes and calendars to be agreed.
 - Redirect URI, primary: https://<host>.<tailnet>.ts.net:8443/api/auth/google/callback via tailscale serve. Confirm at setup that Google accepts ts.net. Fallback: authorise once from a laptop through an SSH tunnel to localhost:8210 using http://localhost:8210/api/auth/google/callback. The token is stored server side either way.
-- Read allowlist (settings): "Running Events" (races) and "Mark Bacon: Home" (busy time). The Man Utd fixtures calendar is excluded by default.
-- Writes (proposals only): the @pulse tag line on Running Events, and mirrored planned workouts on a "Pulse Training" calendar the app creates. Garmin owns workout content, the calendar owns date and time. A moved calendar event becomes a reschedule proposal, never an automatic change.
 
 ## ntfy
 JSON POST to http://192.168.0.10:8090 (root URL), topic homelab-alerts, Bearer token. Notification titles use APP_NAME from packages/shared. Used for: briefing ready, pending proposals, sync failures. Messages link to NGtive Split (code name pulse) and never confirm anything.
@@ -29,5 +28,5 @@ Official SDK. Models from env, defaults ANTHROPIC_MODEL_SMART=claude-sonnet-5-5 
 ## Open-Meteo (Phase 4, optional)
 No key. Daily and race-week forecast from home coordinates in settings.
 
-## Home Assistant (Phase 5)
+## Home Assistant (Phase 6)
 WebSocket API with a long-lived token (HA_URL, HA_TOKEN). Read states first. call_service only through proposals, on allowlisted entities.

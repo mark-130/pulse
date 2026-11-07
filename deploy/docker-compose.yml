@@ -19,9 +19,9 @@ services:
       NTFY_URL: "${NTFY_URL:-http://192.168.0.10:8090}"
       NTFY_TOPIC: "${NTFY_TOPIC:-homelab-alerts}"
       NTFY_TOKEN: "${NTFY_TOKEN:-}"
-      # Phase 2: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+      # Phase 5: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
       # Phase 4: ANTHROPIC_API_KEY, ANTHROPIC_MODEL_SMART, ANTHROPIC_MODEL_FAST, AI_MONTHLY_CAP_GBP
-      # Phase 5: HA_URL, HA_TOKEN
+      # Phase 6: HA_URL, HA_TOKEN
     volumes:
       - /mnt/data/AppData/pulse:/data
     networks:
