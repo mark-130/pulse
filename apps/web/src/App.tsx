@@ -7,6 +7,8 @@ import { Login } from "@/screens/Login";
 import { Placeholder } from "@/screens/Placeholder";
 import { Settings } from "@/screens/Settings";
 import { Today } from "@/screens/Today";
+import { TrendsScreen } from "@/screens/Trends";
+import { Week } from "@/screens/Week";
 
 export function App() {
   const session = useSession();
@@ -25,9 +27,9 @@ export function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Today />} />
-          <Route path="week" element={<Placeholder title="Week" phase="Phase 1" />} />
+          <Route path="week" element={<Week />} />
           <Route path="races" element={<Placeholder title="Races" phase="Phase 2" />} />
-          <Route path="trends" element={<Placeholder title="Trends" phase="Phase 1" />} />
+          <Route path="trends" element={<TrendsScreen />} />
           <Route path="ask" element={<Placeholder title="Ask" phase="Phase 4" />} />
           <Route path="proposals" element={<Placeholder title="Proposals" phase="Phase 3" />} />
           <Route path="settings" element={<Settings />} />

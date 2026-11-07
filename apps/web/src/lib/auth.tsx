@@ -30,6 +30,8 @@ export function useAuthActions() {
     async logout() {
       await api("/api/auth/logout", z.object({ ok: z.boolean() }), { method: "POST" });
       setCsrfToken(null);
+      // Saved API responses are personal data. Remove them from this device on sign out.
+      await globalThis.caches?.delete("pulse-api").catch(() => false);
       qc.setQueryData<SessionResponse>(SESSION_KEY, { authenticated: false, csrfToken: null });
       qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "session" });
     },

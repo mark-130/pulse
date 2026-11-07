@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const json = <T = unknown>(name: string) => text(name, { mode: "json" }).$type<T>();
 
@@ -11,7 +11,7 @@ export const garminSnapshot = sqliteTable(
     payload: json("payload").notNull(),
     fetchedAt: text("fetched_at").notNull(),
   },
-  (t) => [index("garmin_snapshot_kind_date").on(t.kind, t.date)],
+  (t) => [uniqueIndex("garmin_snapshot_kind_date").on(t.kind, t.date)],
 );
 
 export const workout = sqliteTable("workout", {
@@ -27,18 +27,44 @@ export const workout = sqliteTable("workout", {
   lastSeen: text("last_seen").notNull(),
 });
 
+/** Races from the Garmin calendar (get_calendar_events). See D22. Pulse-owned edits go in race_meta (Phase 2). */
 export const race = sqliteTable("race", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  googleEventId: text("google_event_id").notNull().unique(),
-  garminMatch: text("garmin_match"),
+  /** event_uuid when Garmin gives one, otherwise date plus normalised title. */
+  eventKey: text("event_key").notNull().unique(),
+  eventUuid: text("event_uuid"),
   title: text("title").notNull(),
   date: text("date").notNull(),
-  startTime: text("start_time"),
-  distanceKm: real("distance_km"),
-  priority: text("priority", { enum: ["A", "B", "C"] }),
-  goalS: integer("goal_s"),
-  type: text("type", { enum: ["road", "trail"] }),
-  inferredFields: json<string[]>("inferred_fields"),
+  startTimeLocal: text("start_time_local"),
+  timeZone: text("time_zone"),
+  distanceM: real("distance_m"),
+  goalTimeSeconds: real("goal_time_seconds"),
+  isRace: integer("is_race", { mode: "boolean" }).notNull(),
+  primaryEvent: integer("primary_event", { mode: "boolean" }).notNull(),
+  subscribed: integer("subscribed", { mode: "boolean" }).notNull(),
+  location: text("location"),
+  url: text("url"),
+  /** False once Garmin stops returning an event inside the synced window. */
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  firstSeen: text("first_seen").notNull(),
+  lastSeen: text("last_seen").notNull(),
+});
+
+export const activity = sqliteTable("activity", {
+  garminActivityId: text("garmin_activity_id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  /** Local start time as Garmin returns it, "YYYY-MM-DD HH:mm:ss". */
+  startLocal: text("start_local").notNull(),
+  date: text("date").notNull(),
+  distanceM: real("distance_m"),
+  durationS: real("duration_s"),
+  avgHr: integer("avg_hr"),
+  maxHr: integer("max_hr"),
+  calories: integer("calories"),
+  elevationGainM: real("elevation_gain_m"),
+  firstSeen: text("first_seen").notNull(),
+  lastSeen: text("last_seen").notNull(),
 });
 
 export const proposal = sqliteTable("proposal", {
@@ -85,6 +111,10 @@ export const syncState = sqliteTable("sync_state", {
   lastOk: text("last_ok"),
   lastError: text("last_error"),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  lastAttempt: text("last_attempt"),
+  lastAlertAt: text("last_alert_at"),
+  /** Non-fatal problems from the last run, for example optional data that failed to load. */
+  detail: text("detail"),
 });
 
 export const briefing = sqliteTable("briefing", {

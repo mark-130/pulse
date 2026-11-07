@@ -19,3 +19,34 @@ export async function makeApp(password = "correct horse", baseUrl = "http://192.
 export function req(app: Awaited<ReturnType<typeof makeApp>>, path: string, init: RequestInit = {}, ip = "10.0.0.1") {
   return app.request(path, init, { incoming: { socket: { remoteAddress: ip } } });
 }
+
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openDb } from "../src/db/index.js";
+import { createGarminModule } from "../src/modules/garmin/module.js";
+import { fakeGarmin, type FakeOptions } from "./fixtures.js";
+
+/** App with the Garmin module on a temp database, signed in. `clock` controls "now". */
+export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date } = {}) {
+  const password = "pw";
+  const config = loadConfig({
+    NODE_ENV: "test",
+    DATA_DIR: mkdtempSync(join(tmpdir(), "pulse-app-")),
+    PULSE_PASSWORD_HASH: await hashPassword(password),
+    PULSE_SESSION_SECRET: "s".repeat(40),
+    PULSE_SECRET_KEY: "ab".repeat(32),
+    GARMIN_MCP_URL: "http://garmin-mcp:8000/mcp",
+  });
+  const handle = openDb(config.DATA_DIR);
+  const fake = fakeGarmin(opts.fake);
+  const log = createLogger("silent");
+  const mod = createGarminModule({ db: handle.db, sqlite: handle.sqlite, config, connect: fake.connect, notify: async () => undefined, log, now: opts.clock });
+  const app = createApp({ config, log, modules: [mod.module] });
+  const login = await req(app, "/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
+  const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+  const { csrfToken } = (await login.json()) as { csrfToken: string };
+  const get = (path: string) => req(app, path, { headers: { cookie } });
+  const post = (path: string) => req(app, path, { method: "POST", headers: { cookie, "x-csrf-token": csrfToken } });
+  return { app, handle, fake, mod, get, post, cookie, csrfToken, config };
+}

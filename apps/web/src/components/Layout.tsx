@@ -2,9 +2,12 @@ import { APP_NAME } from "@pulse/shared";
 import { CalendarDays, Flag, LineChart, Sun } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router";
+import { formatTime } from "@/lib/format";
+import { useSyncStatus } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "./LogoMark";
 import { Orb } from "./Orb";
+import { StaleBanner } from "./StaleBanner";
 import { SyncSheet } from "./SyncSheet";
 
 const tabs = [
@@ -42,8 +45,15 @@ function TabLink({ to, label, icon: Icon, rail }: (typeof tabs)[number] & { rail
   );
 }
 
+function pillText(lastOk: string | null | undefined, stale: boolean | undefined): string {
+  if (lastOk === undefined) return "Checking sync";
+  if (lastOk === null) return "Not synced yet";
+  return `${stale ? "Stale, synced" : "Synced"} ${formatTime(lastOk)}`;
+}
+
 function Header() {
   const [open, setOpen] = useState(false);
+  const g = useSyncStatus().data?.garmin;
   return (
     <header className="flex items-center justify-between pb-4">
       <div className="flex items-center gap-2 font-display text-[17px] font-semibold md:hidden">
@@ -55,7 +65,7 @@ function Header() {
         onClick={() => setOpen(true)}
         className="ml-auto inline-flex min-h-11 items-center rounded-full border border-border-strong bg-surface-2 px-4 text-[13px] text-muted"
       >
-        Not synced yet
+        {pillText(g?.lastOk, g?.stale)}
       </button>
       <SyncSheet open={open} onClose={() => setOpen(false)} />
     </header>
@@ -78,6 +88,7 @@ export function Layout() {
       </nav>
       <main className="mx-auto w-full max-w-[1120px] px-5 pt-5 pb-28 md:pb-8">
         <Header />
+        <StaleBanner />
         <Outlet />
       </main>
       <nav

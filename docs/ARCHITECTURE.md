@@ -4,12 +4,13 @@
 One container. Hono API plus the built React app. SQLite in /data. Scheduled jobs in-process (croner). Modules register routes, jobs, AI tools and widgets.
 
 ## Data model (SQLite via Drizzle)
-- garmin_snapshot: kind, date, payload JSON, fetched_at
+- garmin_snapshot: kind, date, payload JSON, fetched_at. Unique on (kind, date): one raw snapshot per kind per London day, replaced by later syncs the same day.
+- activity: garmin_activity_id, name, type, start_local, date, distance_m, duration_s, avg_hr, max_hr, calories, elevation_gain_m, first_seen, last_seen (from get_activities_by_date, history kept)
 - workout: garmin_scheduled_id, garmin_workout_id, date, name, sport, duration_s, completed, first_seen, last_seen
 - race (from Garmin get_calendar_events, replaced on each sync by event_uuid): event_uuid, title, date, start_time_local, time_zone, distance_m, goal_time_seconds, is_race, primary_event, subscribed, location, url, first_seen, last_seen
 - race_meta (owned by NGtive Split, never overwritten by sync): meta_key, priority (A, B, C), type (road, trail), goal_override_s, notes, updated_at. meta_key is event_uuid when present, otherwise the date plus the normalised title (lower case, punctuation removed, spaces collapsed). Edits are local database writes with no confirm tap, because nothing outside NGtive Split changes.
 - proposal, audit_log (see below)
-- sync_state: job, last_ok, last_error, consecutive_failures
+- sync_state: job, last_ok, last_attempt, last_error, consecutive_failures, last_alert_at, detail
 - briefing: date, text, data JSON, model, tokens
 - chat_message: thread, role, content, tool_calls JSON
 - ai_usage: ts, feature, model, input_tokens, output_tokens, cost_gbp
@@ -32,6 +33,11 @@ Single user. Password checked against a scrypt hash (salt:hash in hex) in PULSE_
 ## Sync
 - Each module job writes snapshots. Garmin every 30 minutes with backoff, covering workouts, metrics and the race calendar. Phase 5 adds Google incremental sync with syncToken, full resync on 410.
 - UI reads the database only, never live upstream calls per page view.
+- Garmin failures back off 30, 60, 120 then 240 minutes. A run counts as failed only if scheduled workouts, calendar events or activities fail. Other failures are kept as a note.
+- Stale means no successful Garmin sync for more than 90 minutes. The banner and the header pill show it on every screen.
+- A future workout that Garmin stops returning is removed. Past workouts, activities and raw snapshots are kept as history. Races Garmin stops returning are marked inactive.
+- Nightly backup at 03:10 Europe/London: VACUUM INTO /data/backups/pulse-YYYYMMDD-HHmm.db, newest 7 kept.
+- Offline: the service worker keeps the last good response of the read endpoints in the pulse-api cache (network first). Sign out deletes that cache.
 - ntfy alert after 3 consecutive failures, at most once per day per job.
 
 ## Security and ops

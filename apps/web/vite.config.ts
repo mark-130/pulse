@@ -37,7 +37,18 @@ export default defineConfig({
           { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
-      workbox: { navigateFallbackDenylist: [/^\/api\//], globPatterns: ["**/*.{js,css,html,svg,png,woff2}"] },
+      workbox: {
+        navigateFallbackDenylist: [/^\/api\//],
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        // Offline shows the last saved snapshot. Cleared on sign out.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }: { url: URL }) => /^\/api\/(today|week|trends|races|sync\/status|auth\/session)$/.test(url.pathname),
+            handler: "NetworkFirst",
+            options: { cacheName: "pulse-api", networkTimeoutSeconds: 4, expiration: { maxEntries: 40, maxAgeSeconds: 7 * 24 * 3600 }, cacheableResponse: { statuses: [200] } },
+          },
+        ],
+      },
     }),
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },

@@ -11,6 +11,8 @@
 - Write tools, Phase 3 onwards, through proposals only: schedule_workout, reschedule_workout, unschedule_workout.
 - Never used in v1: delete_*, upload_*, push_workout_to_device, create_* workouts, nutrition, weigh-ins.
 - Phase 0 lists the server's tools and diffs them against this file. Tool names may drift.
+- Verified against the live server on 07/11/2026 (Phase 1): the server returns some upstream failures as plain text, not as a tool error, for example "Error retrieving training load data for ...: Read timed out". Text starting with "No" (no data found) is an empty result. Any other plain text is treated as a failure.
+- get_training_load_trend makes one upstream request per day and times out on long ranges, so the sync asks for 42 days. Ranged tools reject more than 90 days. The calendar accepts a two year range. The first sync backfills 180 days of activities (about one minute), later syncs fetch 14 days.
 - Store raw tool output in garmin_snapshot and validate with zod when reading.
 
 ## Google Calendar (Phase 5, scope to be agreed)
