@@ -89,13 +89,13 @@ describe("cookie Secure flag", () => {
   };
 
   it("is not Secure when PULSE_BASE_URL is http, so it works on the LAN", async () => {
-    const cookie = await login("http://192.168.0.10:8200");
+    const cookie = await login("http://192.168.0.10:8210");
     expect(cookie).toMatch(/pulse_session=/);
     expect(cookie).not.toMatch(/Secure/i);
   });
 
   it("ignores a client supplied x-forwarded-proto", async () => {
-    expect(await login("http://192.168.0.10:8200", { "x-forwarded-proto": "https" })).not.toMatch(/Secure/i);
+    expect(await login("http://192.168.0.10:8210", { "x-forwarded-proto": "https" })).not.toMatch(/Secure/i);
   });
 
   it("is Secure when PULSE_BASE_URL is https", async () => {

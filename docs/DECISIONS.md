@@ -9,7 +9,7 @@
 - D8 Google OAuth app in production mode to avoid 7 day token expiry.
 - D9 Models configured by env, not hard-coded.
 - D10 Plan app workouts read from get_scheduled_workouts. Garmin Coach tools not used.
-- D11 Port 8200 on the LAN, HTTPS on the tailnet at port 8443 through tailscale serve.
+- D11 Host port 8210 on the LAN (mapped to 8200 inside the container). Host port 8200 is taken by Duplicati. HTTPS on the tailnet at port 8443 through tailscale serve, forwarding to http://localhost:8210.
 - D12 (07/11/2026, Phase 0 discovery) Internal Garmin MCP URL: http://garmin-mcp:8000/mcp (container garmin-mcp on the homelab network, streamable HTTP, no auth on the direct port). The nginx container garmin-mcp-proxy fronts it with a token and is not used by Pulse. A read-only initialize and tools/list succeeded: 157 tools. All 24 read tools and 3 write tools named in INTEGRATIONS.md exist, so no drift. The server also has schedule_week, schedule_workouts and unschedule_workouts: not in the allowlist, Pulse will not call them.
 - D13 (07/11/2026) Watchtower: label-enable mode, runs daily at 04:00, notifies via ntfy. It has no Docker config.json mounted, so it holds no GHCR credentials. The ghcr.io/mark-130/pulse package must be public, or credentials added to Watchtower, or auto-update will fail.
 - D14 (07/11/2026) Homer config is /mnt/data/AppData/homer/assets/config.yml. Pulse tile goes in the "Tools & Productivity" group with tag "tools".

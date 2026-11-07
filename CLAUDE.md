@@ -28,7 +28,7 @@ pnpm workspace. apps/web: React 19, Vite, TypeScript strict, Tailwind v4, shadcn
 
 ## Homelab conventions
 - Compose lives in deploy/docker-compose.yml and is pasted into Portainer's web editor. Portainer cannot read host env_file paths, so use ${VAR} and paste variables into Advanced mode.
-- External network `homelab`. Data at /mnt/data/AppData/pulse. Port 8200.
+- External network `homelab`. Data at /mnt/data/AppData/pulse. Host port 8210 (the container listens on 8200 internally; Duplicati holds 8200 on the host).
 - Watchtower opt-in label on the service. Homer entry kept in deploy/homer-entry.yml.
 - ntfy: POST JSON to the root URL (http://192.168.0.10:8090), topic homelab-alerts, Bearer token.
 - Shell scripts: under set -euo pipefail use ok=$((ok+1)), never ((ok++)). Run git as user mark.

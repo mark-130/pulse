@@ -16,7 +16,7 @@
 ## Google Calendar (personal Google account)
 - OAuth 2.0 web client. Publish the consent screen to "In production" (personal use, the unverified warning is expected), because Testing mode refresh tokens expire after 7 days.
 - Scopes: Phase 2 calendar.readonly. Phase 3 adds calendar.events and calendar.app.created (verify names against Google docs at build time). Re-consent at Phase 3 is expected.
-- Redirect URI, primary: https://<host>.<tailnet>.ts.net:8443/api/auth/google/callback via tailscale serve. Confirm at setup that Google accepts ts.net. Fallback: authorise once from a laptop through an SSH tunnel to localhost:8200 using http://localhost:8200/api/auth/google/callback. The token is stored server side either way.
+- Redirect URI, primary: https://<host>.<tailnet>.ts.net:8443/api/auth/google/callback via tailscale serve. Confirm at setup that Google accepts ts.net. Fallback: authorise once from a laptop through an SSH tunnel to localhost:8210 using http://localhost:8210/api/auth/google/callback. The token is stored server side either way.
 - Read allowlist (settings): "Running Events" (races) and "Mark Bacon: Home" (busy time). The Man Utd fixtures calendar is excluded by default.
 - Writes (proposals only): the @pulse tag line on Running Events, and mirrored planned workouts on a "Pulse Training" calendar the app creates. Garmin owns workout content, the calendar owns date and time. A moved calendar event becomes a reschedule proposal, never an automatic change.
 
