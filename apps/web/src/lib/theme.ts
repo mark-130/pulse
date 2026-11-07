@@ -1,9 +1,15 @@
+import { THEME_COLOR_DARK, THEME_COLOR_LIGHT } from "@pulse/shared";
+
 export type ThemeMode = "system" | "dark" | "light";
 const KEY = "pulse-theme";
 
 export function resolveTheme(mode: ThemeMode, prefersLight: boolean): "dark" | "light" {
   if (mode === "system") return prefersLight ? "light" : "dark";
   return mode;
+}
+
+export function themeColor(theme: "dark" | "light"): string {
+  return theme === "light" ? THEME_COLOR_LIGHT : THEME_COLOR_DARK;
 }
 
 export function getThemeMode(): ThemeMode {
@@ -25,6 +31,7 @@ export function setThemeMode(mode: ThemeMode): void {
 }
 
 export function applyTheme(mode: ThemeMode): void {
-  const light = resolveTheme(mode, matchMedia("(prefers-color-scheme: light)").matches) === "light";
-  document.documentElement.classList.toggle("light", light);
+  const theme = resolveTheme(mode, matchMedia("(prefers-color-scheme: light)").matches);
+  document.documentElement.classList.toggle("light", theme === "light");
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", themeColor(theme)));
 }

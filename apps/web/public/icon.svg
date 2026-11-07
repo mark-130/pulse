@@ -1,1 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#0b0f14"/><polyline points="12,50 35,50 43,25 55,75 63,50 88,50" fill="none" stroke="#38bdf8" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="orb" gradientUnits="objectBoundingBox" cx="0.32" cy="0.28" r="0.99">
+      <stop offset="0" stop-color="#C9FFF5"/>
+      <stop offset="0.26" stop-color="#2DD4BF"/>
+      <stop offset="0.6" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="14"/></filter>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+  </defs>
+  <rect width="512" height="512" fill="#0A1113"/>
+  <circle cx="256" cy="256" r="158" fill="#5EEAD4" opacity="0.34" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="150" fill="url(#orb)"/>
+  <ellipse cx="199.0" cy="181.0" rx="51.0" ry="33.0" fill="#fff" opacity="0.4" filter="url(#soft)" transform="rotate(-30 199.0 181.0)"/>
+</svg>

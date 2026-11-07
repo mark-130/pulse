@@ -1,5 +1,5 @@
 # Roadmap
-Each phase ends with a demo checklist, a test summary, DECISIONS.md updates, then a stop for sign-off.
+Each phase ends with a demo checklist, a test summary, DECISIONS.md updates, then a stop for sign-off. Every phase also ends with a design review of the real screens against docs/DESIGN.md before sign-off.
 
 ## Phase 0: Foundation
 Scope: repo and pnpm workspace, API skeleton with /api/health, login, session, CSRF, SQLite and Drizzle migrations, Module interface and empty registry, web shell (tabs, theme, PWA manifest), Dockerfile, CI workflow, deploy/docker-compose.yml. Discovery: internal Garmin MCP URL and tool list (diffed against INTEGRATIONS.md), how Watchtower is configured (needed if the GHCR package is private).

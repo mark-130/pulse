@@ -14,6 +14,8 @@
 5. Post-run debrief on each new activity: splits, heart rate drift, two line summary.
 6. Natural language changes ("move Thursday's tempo to Friday") create proposals.
 
+- Every AI-written block carries the sparkle icon and an "AI" chip.
+
 ## Tools
 - Read: get_today, get_week, list_races, get_race_context, get_metrics(range), get_activity, get_busy_time (Phase 5), get_forecast.
 - Write-shaped: propose_reschedule, propose_unschedule, propose_calendar_event (Phase 5 only). They only insert a proposal and return its id. The model is told nothing has happened until Mark confirms.

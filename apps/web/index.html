@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0f14" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="%THEME_COLOR_DARK%" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="%THEME_COLOR_LIGHT%" media="(prefers-color-scheme: light)" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>%APP_NAME%</title>
@@ -15,7 +17,12 @@
       try {
         var m = localStorage.getItem("pulse-theme") || "system";
         var light = m === "light" || (m === "system" && matchMedia("(prefers-color-scheme: light)").matches);
-        if (light) document.documentElement.classList.add("light");
+        if (light) {
+          document.documentElement.classList.add("light");
+          document.querySelectorAll('meta[name="theme-color"]').forEach(function (e) { e.setAttribute("content", "%THEME_COLOR_LIGHT%"); });
+        } else if (m === "dark") {
+          document.querySelectorAll('meta[name="theme-color"]').forEach(function (e) { e.setAttribute("content", "%THEME_COLOR_DARK%"); });
+        }
       } catch (e) {}
     </script>
   </head>

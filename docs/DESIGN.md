@@ -1,13 +1,74 @@
-# Design
-- Mobile-first installable PWA. Phone is primary, desktop is supported.
-- Dark by default, follows system, light available.
-- Screens: Today, Week, Races, Trends, Ask, Proposals, Settings. Bottom tab bar on mobile, side rail on desktop.
-- Today shows, in order: readiness verdict, today's workout, next race with taper status, pending proposals, key metrics.
-- shadcn/ui components, Tailwind tokens as CSS variables, one accent colour. Tap targets at least 44px.
-- Verdict colours (go, easy, swap, rest) are never the only signal: always icon plus text.
-- Confirm dialog: names the target system (Garmin, Google Calendar, Home Assistant), shows exact before and after, one primary Confirm button, a Reject button, no auto-confirm, no pre-selected default, destructive changes in red.
-- Every data card shows its last sync time. Stale data gets a banner. Offline shows the last cached snapshot.
-- Loading skeletons, plain error messages with Retry.
-- Charts: Recharts, pace as min/km, labelled axes, table fallback for accessibility.
-- Module widgets register a card (1x1 or 2x1) into a responsive grid. Reordering is a later feature.
+# Design: "Orb"
+
+Source of truth for the look of NGtive Split (code name pulse). Tokens live in apps/web/src/styles/tokens.css and the exported constants in packages/shared/src/brand.ts. Fonts are self-hosted.
+
+## Principles
+- Mobile first installable PWA. Dark by default, follows system, light available.
+- Calm, conversational, AI-first. One accent.
+- The orb appears only where AI is acting: the Today hero, the morning briefing, Ask and AI proposals. It is never decoration elsewhere.
+- Nothing animates except the orb glow, and not when prefers-reduced-motion is set.
 - Copy: UK English, short, numbers with units, no dashes, no hype.
+
+## Dark tokens (default)
+- bg #0A1113, with a soft blue glow at the top: radial-gradient(90% 30% at 50% 6%, rgba(59,130,246,0.22), transparent 70%)
+- surface #121C1F, border rgba(255,255,255,0.07), border-strong rgba(255,255,255,0.14)
+- text #EAF4F3, muted #9DB3B2
+- accent #5EEAD4, on-accent #0A1113
+- ai-gradient: linear-gradient(90deg, #5EEAD4, #3B82F6, #8B5CF6)
+- orb: radial-gradient(circle at 32% 28%, #C9FFF5 0%, #2DD4BF 26%, #3B82F6 60%, #7C3AED 100%), outer glow rgba(94,234,212,0.34) blurred 10px, soft white highlight ellipse top left
+- briefing surface: linear-gradient(160deg, rgba(94,234,212,0.12), rgba(139,92,246,0.12)), border rgba(255,255,255,0.1)
+- proposals surface: rgba(94,234,212,0.06), border rgba(94,234,212,0.3)
+- chips: race priority B rgba(139,92,246,0.22) with text #CDB9FF; taper rgba(94,234,212,0.14) with accent text; neutral rgba(255,255,255,0.08) with text #DCEBE9
+
+## Light tokens
+Same layout. bg #F4F8F8, surface #FFFFFF, border rgba(10,17,19,0.08), text #0A1113, muted #4B6161, accent #0F766E, on-accent #FFFFFF. The orb is unchanged with a softer glow. Chip, briefing and proposal tints use the darker accent and violet so text keeps at least 4.5:1 contrast. Contrast is checked when tokens change.
+
+## Verdict states
+Always icon plus text, never colour alone.
+- Go as planned: accent, check icon.
+- Go but easier: amber, #FBBF24 dark, #B45309 light.
+- Swap for recovery: orange, #FB923C dark, #C2410C light.
+- Rest: rose, #FB7185 dark, #BE123C light.
+
+## Type
+Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self-hosted through @fontsource, no Google Fonts or CDN requests, so the PWA works offline.
+- Page greeting 28, hero number 52, countdown 46, card title 18, body 15, secondary 13, label 12, overline 11 uppercase with 0.08em tracking.
+- Letter spacing -0.02em on 28 and above.
+- Numbers use tabular figures where they line up.
+
+## Shape and space
+- Page padding 20, card padding 16, gap 12.
+- Card radius 24. Briefing bubble radius 8 24 24 24. Chips and buttons fully round.
+- Progress bars 4px (metrics) and 10px (readiness).
+- Tap targets at least 44px.
+
+## Screens and navigation
+- Tabs: Today, Week, Ask, Races, Trends. Ask is the raised 58px orb in the centre. The active tab uses the accent.
+- Desktop: side rail with the same five destinations. Today is a bento grid up to 1120px wide.
+- Proposals is reached from the Today proposals card. Settings is reached from the sync status sheet. Both keep their routes.
+
+## Components
+- Header: split-bar logo mark plus "NGtive Split" in Sora 600 17, and a sync pill ("Synced 07:30"). Tapping the pill opens a sync status sheet with a link to Settings.
+- Orb hero: 96px orb, greeting "Morning, Mark" (by time of day), date line.
+- Briefing bubble: sparkle, "Morning briefing", time, AI chip, text 15 with 1.6 line height.
+- Prompt chips under the briefing: three suggested questions, wrapping to rows.
+- Verdict card: verdict chip, big readiness number over 100, gradient gauge with a marker, one line of reasons, Garmin sync time.
+- Session row: icon tile, overline, title, estimated duration, source, View button.
+- Race card: name, date and start time in the race's own time zone, countdown, a seven day row of circles (today outlined, taper days tinted, race day filled accent), chips for priority, goal and taper start, then a line for the following race.
+- Metric tiles, two columns: label, value, 4px gradient bar, status line.
+- Proposals card: count, "Nothing is applied until you confirm.", Review button.
+
+## Today order
+Orb hero, briefing, prompt chips, verdict, session, race, metrics, proposals. Module widgets register a card (1x1 or 2x1) into the grid after these. Reordering is a later feature.
+
+## Brand
+- Split-bar mark: a short dim bar above a longer gradient bar (a negative split).
+- App icon: the orb on #0A1113, with a maskable version (orb inside the 80 percent safe zone). Generated by pnpm icons from apps/web/public/icon.svg.
+- theme-color #0A1113 dark and #F4F8F8 light. Manifest name and short_name "NGtive Split".
+
+## Behaviour rules
+- Confirm dialog: names the target system (Garmin, Google Calendar, Home Assistant), shows exact before and after, one primary Confirm button, a Reject button, no auto-confirm, no pre-selected default, destructive changes in red. No orb, no humour.
+- Every data card shows its last sync time. Stale data gets a banner. Offline shows the last cached snapshot.
+- Loading skeletons (static, no shimmer), plain error messages with Retry.
+- Charts: Recharts, pace as min/km, labelled axes, table fallback for accessibility.
+- Every AI-written block carries the sparkle icon and an "AI" chip (see docs/AI.md).

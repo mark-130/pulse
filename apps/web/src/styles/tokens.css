@@ -1,0 +1,80 @@
+/* Design tokens for the "Orb" look. Source of truth: docs/DESIGN.md. Dark is the default, .light overrides. */
+:root {
+  --bg: #0a1113;
+  --bg-glow: radial-gradient(90% 30% at 50% 6%, rgba(59, 130, 246, 0.22), transparent 70%);
+  --surface: #121c1f;
+  --surface-2: rgba(255, 255, 255, 0.05);
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --text: #eaf4f3;
+  --muted: #9db3b2;
+  --accent: #5eead4;
+  --on-accent: #0a1113;
+  --ai-gradient: linear-gradient(90deg, #5eead4, #3b82f6, #8b5cf6);
+  --orb: radial-gradient(circle at 32% 28%, #c9fff5 0%, #2dd4bf 26%, #3b82f6 60%, #7c3aed 100%);
+  --orb-glow: rgba(94, 234, 212, 0.34);
+  --briefing-bg: linear-gradient(160deg, rgba(94, 234, 212, 0.12), rgba(139, 92, 246, 0.12));
+  --briefing-border: rgba(255, 255, 255, 0.1);
+  --proposals-bg: rgba(94, 234, 212, 0.06);
+  --proposals-border: rgba(94, 234, 212, 0.3);
+  --chip-b-bg: rgba(139, 92, 246, 0.22);
+  --chip-b-fg: #cdb9ff;
+  --chip-taper-bg: rgba(94, 234, 212, 0.14);
+  --chip-taper-fg: #5eead4;
+  --chip-neutral-bg: rgba(255, 255, 255, 0.08);
+  --chip-neutral-fg: #dcebe9;
+  --verdict-go: #5eead4;
+  --verdict-easy: #fbbf24;
+  --verdict-swap: #fb923c;
+  --verdict-rest: #fb7185;
+  color-scheme: dark;
+}
+
+:root.light {
+  --bg: #f4f8f8;
+  --bg-glow: radial-gradient(90% 30% at 50% 6%, rgba(59, 130, 246, 0.12), transparent 70%);
+  --surface: #ffffff;
+  --surface-2: rgba(10, 17, 19, 0.05);
+  --border: rgba(10, 17, 19, 0.08);
+  --border-strong: rgba(10, 17, 19, 0.16);
+  --text: #0a1113;
+  --muted: #4b6161;
+  --accent: #0f766e;
+  --on-accent: #ffffff;
+  --orb-glow: rgba(94, 234, 212, 0.2);
+  --briefing-bg: linear-gradient(160deg, rgba(15, 118, 110, 0.1), rgba(124, 58, 237, 0.08));
+  --briefing-border: rgba(10, 17, 19, 0.1);
+  --proposals-bg: rgba(15, 118, 110, 0.06);
+  --proposals-border: rgba(15, 118, 110, 0.3);
+  --chip-b-bg: rgba(139, 92, 246, 0.14);
+  --chip-b-fg: #5b21b6;
+  --chip-taper-bg: rgba(15, 118, 110, 0.12);
+  --chip-taper-fg: #0f766e;
+  --chip-neutral-bg: rgba(10, 17, 19, 0.06);
+  --chip-neutral-fg: #1f3333;
+  --verdict-go: #0f766e;
+  --verdict-easy: #b45309;
+  --verdict-swap: #c2410c;
+  --verdict-rest: #be123c;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-foreground: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--on-accent);
+  --color-danger: var(--verdict-rest);
+  --color-verdict-go: var(--verdict-go);
+  --color-verdict-easy: var(--verdict-easy);
+  --color-verdict-swap: var(--verdict-swap);
+  --color-verdict-rest: var(--verdict-rest);
+  --font-sans: "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Sora", "DM Sans", system-ui, sans-serif;
+  --radius-card: 24px;
+}

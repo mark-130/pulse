@@ -4,12 +4,12 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex min-h-11 items-center justify-center rounded-lg px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50",
+  "inline-flex min-h-11 items-center justify-center rounded-full px-5 text-[15px] font-semibold disabled:opacity-50",
   {
     variants: {
       variant: {
         primary: "bg-accent text-accent-foreground",
-        secondary: "border border-border bg-surface-2 text-foreground",
+        secondary: "border border-border-strong bg-surface-2 text-foreground",
       },
     },
     defaultVariants: { variant: "primary" },
@@ -28,13 +28,13 @@ export function Button({
 
 export function Card({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
   return (
-    <section className={cn("rounded-xl border border-border bg-surface p-4", className)}>
-      <h2 className="mb-2 text-sm font-medium text-muted">{title}</h2>
+    <section className={cn("card", className)}>
+      <h2 className="t-card-title mb-2">{title}</h2>
       {children}
     </section>
   );
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {
-  return <p className="text-sm text-muted">{children}</p>;
+  return <p className="t-secondary">{children}</p>;
 }

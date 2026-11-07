@@ -1,5 +1,6 @@
 import { APP_NAME } from "@pulse/shared";
 import { useState, type FormEvent } from "react";
+import { LogoMark } from "@/components/LogoMark";
 import { Button } from "@/components/ui";
 import { ApiRequestError } from "@/lib/api";
 import { useAuthActions } from "@/lib/auth";
@@ -24,11 +25,14 @@ export function Login() {
   }
 
   return (
-    <div className="grid min-h-dvh place-items-center p-4">
-      <form onSubmit={submit} className="w-full max-w-sm space-y-4 rounded-xl border border-border bg-surface p-6">
-        <h1 className="text-xl font-semibold">{APP_NAME}</h1>
-        <label className="block text-sm">
-          <span className="mb-1 block text-muted">Password</span>
+    <div className="grid min-h-dvh place-items-center px-5 py-10">
+      <form onSubmit={submit} className="card w-full max-w-sm space-y-5 p-6">
+        <div className="flex items-center gap-3">
+          <LogoMark size={36} />
+          <h1 className="t-greeting !text-[24px]">{APP_NAME}</h1>
+        </div>
+        <label className="block">
+          <span className="t-label mb-1 block">Password</span>
           <input
             type="password"
             autoComplete="current-password"
@@ -36,11 +40,11 @@ export function Login() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="min-h-11 w-full rounded-lg border border-border bg-surface-2 px-3"
+            className="min-h-11 w-full rounded-full border border-border-strong bg-surface-2 px-4 text-[15px]"
           />
         </label>
         {error && (
-          <p role="alert" className="text-sm text-danger">
+          <p role="alert" className="text-[13px] font-medium text-danger">
             {error}
           </p>
         )}
