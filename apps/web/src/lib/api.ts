@@ -1,3 +1,4 @@
+import { APP_NAME } from "@pulse/shared";
 import type { z } from "zod";
 
 let csrfToken: string | null = null;
@@ -23,7 +24,7 @@ export async function api<T>(path: string, schema: z.ZodType<T>, init: { method?
   try {
     res = await fetch(path, { method, headers, credentials: "same-origin", body: init.body === undefined ? undefined : JSON.stringify(init.body) });
   } catch {
-    throw new ApiRequestError("Cannot reach Pulse. Check your connection.", 0);
+    throw new ApiRequestError(`Cannot reach ${APP_NAME}. Check your connection.`, 0);
   }
   const data: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {

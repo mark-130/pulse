@@ -1,3 +1,4 @@
+import { APP_NAME } from "@pulse/shared";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui";
 import { ApiRequestError } from "@/lib/api";
@@ -25,7 +26,7 @@ export function Login() {
   return (
     <div className="grid min-h-dvh place-items-center p-4">
       <form onSubmit={submit} className="w-full max-w-sm space-y-4 rounded-xl border border-border bg-surface p-6">
-        <h1 className="text-xl font-semibold">Pulse</h1>
+        <h1 className="text-xl font-semibold">{APP_NAME}</h1>
         <label className="block text-sm">
           <span className="mb-1 block text-muted">Password</span>
           <input

@@ -21,7 +21,7 @@
 - Writes (proposals only): the @pulse tag line on Running Events, and mirrored planned workouts on a "Pulse Training" calendar the app creates. Garmin owns workout content, the calendar owns date and time. A moved calendar event becomes a reschedule proposal, never an automatic change.
 
 ## ntfy
-JSON POST to http://192.168.0.10:8090 (root URL), topic homelab-alerts, Bearer token. Used for: briefing ready, pending proposals, sync failures. Messages link to Pulse and never confirm anything.
+JSON POST to http://192.168.0.10:8090 (root URL), topic homelab-alerts, Bearer token. Notification titles use APP_NAME from packages/shared. Used for: briefing ready, pending proposals, sync failures. Messages link to NGtive Split (code name pulse) and never confirm anything.
 
 ## Anthropic API
 Official SDK. Models from env, defaults ANTHROPIC_MODEL_SMART=claude-sonnet-5-5 and ANTHROPIC_MODEL_FAST=claude-haiku-5-5 (verify IDs at docs.claude.com before the first call). Dedicated API key with a spend cap.

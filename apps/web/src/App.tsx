@@ -1,3 +1,4 @@
+import { APP_NAME } from "@pulse/shared";
 import { BrowserRouter, Route, Routes } from "react-router";
 import { Layout } from "@/components/Layout";
 import { EmptyState } from "@/components/ui";
@@ -13,7 +14,7 @@ export function App() {
   if (session.isError) {
     return (
       <div className="p-4 space-y-2">
-        <p role="alert">Cannot reach Pulse.</p>
+        <p role="alert">Cannot reach {APP_NAME}.</p>
         <button className="min-h-11 rounded-lg border border-border px-4" onClick={() => void session.refetch()}>Retry</button>
       </div>
     );

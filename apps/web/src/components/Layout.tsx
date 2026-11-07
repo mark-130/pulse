@@ -1,4 +1,5 @@
 import { CalendarDays, Flag, LineChart, ListChecks, MessageSquare, Settings, Sun } from "lucide-react";
+import { APP_SHORT_NAME } from "@pulse/shared";
 import { NavLink, Outlet } from "react-router";
 import { cn } from "@/lib/utils";
 
@@ -35,7 +36,7 @@ export function Layout() {
   return (
     <div className="min-h-dvh md:grid md:grid-cols-[13rem_1fr]">
       <nav aria-label="Main" className="hidden border-r border-border bg-surface p-3 md:block">
-        <div className="mb-4 px-3 text-lg font-semibold">Pulse</div>
+        <div className="mb-4 px-3 text-lg font-semibold">{APP_SHORT_NAME}</div>
         <div className="flex flex-col gap-1">
           {tabs.map((t) => (
             <TabLink key={t.to} {...t} rail />

@@ -1,9 +1,9 @@
 # Training model
 
 ## Sources of truth
-- Workouts: Garmin, via get_scheduled_workouts. A separate plan app pushes into Garmin. Pulse never talks to the plan app.
+- Workouts: Garmin, via get_scheduled_workouts. A separate plan app pushes into Garmin. NGtive Split (code name pulse) never talks to the plan app.
 - Verified 07/11/2026: the plan app's workout appears in get_scheduled_workouts ("1h50 Long Run", 08/11/2026, 110 min). get_garmin_coach_workouts returned nothing, so Coach tools are not the source.
-- Horizon: only one workout was visible across the next five weeks, so the plan app appears to push a short rolling window (inference). Pulse snapshots scheduled workouts daily, keeps history, and never assumes future workouts are visible.
+- Horizon: only one workout was visible across the next five weeks, so the plan app appears to push a short rolling window (inference). NGtive Split snapshots scheduled workouts daily, keeps history, and never assumes future workouts are visible.
 - Races: the Google calendar "Running Events" (id 8ef6ff9ee3c4726b6ccc486d13c90ab0d22d1b9bb66cc2339664fb8cc9151e9d@group.calendar.google.com). Garmin calendar events (get_calendar_events) only enrich: start time, goal time, is_race, primary_event.
 - Taper advice derives from race dates and recent load, never from future workouts.
 
@@ -12,7 +12,7 @@
 - Optional metadata: one line in the event description, for example `@pulse prio=A dist=21.1 goal=1:40:00 type=road`. Keys: prio (A, B, C), dist (km), goal (h:mm:ss), type (road, trail). Other description text (booking references) is preserved untouched.
 - Inference when a key is missing: dist from the title (marathon 42.195, half 21.0975, 10K 10); prio B, A if Garmin primary_event is true, C if the matched Garmin event has is_race false; goal from Garmin goal_time_seconds; type trail if the title contains trail or Snowdonia.
 - Inferred races appear in an "Unclassified" card. Writing the @pulse line back to Google is a proposal that needs a confirm tap.
-- Matching Google to Garmin: same date and distance within 5 percent, then fuzzy title. Report mismatches (races on Google but absent from Garmin) as read-only information. Pulse cannot write to the Garmin calendar.
+- Matching Google to Garmin: same date and distance within 5 percent, then fuzzy title. Report mismatches (races on Google but absent from Garmin) as read-only information. NGtive Split cannot write to the Garmin calendar.
 - All-day events: use Garmin start_time_local when matched, otherwise show "start time unknown".
 
 ## Priorities

@@ -2,8 +2,8 @@
 Each phase ends with a demo checklist, a test summary, DECISIONS.md updates, then a stop for sign-off.
 
 ## Phase 0: Foundation
-Scope: repo and pnpm workspace, API skeleton with /api/health, login, session, CSRF, SQLite and Drizzle migrations, Module interface and empty registry, web shell (tabs, theme, PWA manifest), Dockerfile, CI workflow, deploy/docker-compose.yml, deploy/homer-entry.yml. Discovery: internal Garmin MCP URL and tool list (diffed against INTEGRATIONS.md), how Watchtower is configured (needed if the GHCR package is private), Homer config file location and the right group for the tile.
-Acceptance: container healthy on the homelab network. http://192.168.0.10:8210 shows login then an empty Today. The tailscale serve URL works. Watchtower label present. CI builds the image. Typecheck, lint and tests pass. Homer tile ready to paste. Discovery results recorded.
+Scope: repo and pnpm workspace, API skeleton with /api/health, login, session, CSRF, SQLite and Drizzle migrations, Module interface and empty registry, web shell (tabs, theme, PWA manifest), Dockerfile, CI workflow, deploy/docker-compose.yml. Discovery: internal Garmin MCP URL and tool list (diffed against INTEGRATIONS.md), how Watchtower is configured (needed if the GHCR package is private).
+Acceptance: container healthy on the homelab network. http://192.168.0.10:8210 shows login then an empty Today. The tailscale serve URL works. Watchtower label present. CI builds the image. Typecheck, lint and tests pass. Discovery results recorded.
 
 ## Phase 1: Garmin read
 Scope: Garmin sync job, snapshots, Today and Week views, Trends, stale banner.
