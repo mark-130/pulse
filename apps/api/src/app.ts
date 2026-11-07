@@ -78,7 +78,7 @@ export function createApp({ config, log, modules = [], version = "0.0.0" }: AppD
       sameSite: "Lax",
       path: "/",
       maxAge: SESSION_MAX_AGE_S,
-      secure: c.req.header("x-forwarded-proto") === "https",
+      secure: config.PULSE_BASE_URL.startsWith("https://"),
     });
     const body: SessionResponse = { authenticated: true, csrfToken: payload.csrf };
     return c.json(body);

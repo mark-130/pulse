@@ -79,3 +79,27 @@ describe("api", () => {
     expect((await attempt("10.0.0.10")).status).toBe(401);
   });
 });
+
+describe("cookie Secure flag", () => {
+  const login = async (baseUrl: string, headers: Record<string, string> = {}) => {
+    const app = await makeApp("pw", baseUrl);
+    const res = await req(app, "/api/auth/login", { method: "POST", headers: { ...json, ...headers }, body: JSON.stringify({ password: "pw" }) });
+    expect(res.status).toBe(200);
+    return res.headers.get("set-cookie") ?? "";
+  };
+
+  it("is not Secure when PULSE_BASE_URL is http, so it works on the LAN", async () => {
+    const cookie = await login("http://192.168.0.10:8200");
+    expect(cookie).toMatch(/pulse_session=/);
+    expect(cookie).not.toMatch(/Secure/i);
+  });
+
+  it("ignores a client supplied x-forwarded-proto", async () => {
+    expect(await login("http://192.168.0.10:8200", { "x-forwarded-proto": "https" })).not.toMatch(/Secure/i);
+  });
+
+  it("is Secure when PULSE_BASE_URL is https", async () => {
+    expect(await login("https://home-lab.tailnet.ts.net:8443")).toMatch(/Secure/i);
+  });
+});
+

@@ -13,6 +13,7 @@ RUN pnpm build \
  && node -e "const v=require('./apps/api/package.json').dependencies['better-sqlite3'];require('fs').writeFileSync('/out/package.json',JSON.stringify({name:'pulse-runtime',private:true,type:'module',dependencies:{'better-sqlite3':v}}))"
 
 FROM node:22-alpine AS runtime
+LABEL org.opencontainers.image.source="https://github.com/mark-130/pulse"
 ENV NODE_ENV=production PORT=8200 DATA_DIR=/data WEB_DIST=/app/web MIGRATIONS_DIR=/app/drizzle
 WORKDIR /app
 COPY --from=build /out/package.json ./

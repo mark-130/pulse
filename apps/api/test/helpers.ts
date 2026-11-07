@@ -3,9 +3,10 @@ import { createApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { createLogger } from "../src/logger.js";
 
-export async function makeApp(password = "correct horse") {
+export async function makeApp(password = "correct horse", baseUrl = "http://192.168.0.10:8200") {
   const config = loadConfig({
     NODE_ENV: "test",
+    PULSE_BASE_URL: baseUrl,
     PULSE_PASSWORD_HASH: await hashPassword(password),
     PULSE_SESSION_SECRET: "s".repeat(40),
     PULSE_SECRET_KEY: "ab".repeat(32),
