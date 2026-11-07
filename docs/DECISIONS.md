@@ -1,0 +1,13 @@
+# Decisions (07/11/2026 unless stated)
+- D1 Single container, API plus static web. Fits the homelab pattern and Watchtower.
+- D2 SQLite, single user, one volume.
+- D3 Reuse the existing Garmin MCP server rather than a second Garmin client. One login, one place to fix quirks.
+- D4 Races come from the Running Events calendar, enriched by Garmin. Optional @pulse description line for priority, distance, goal and type. Inference fills gaps.
+- D5 All writes go through the proposal engine with a confirm tap.
+- D6 Own login. Tailscale identity headers rejected because LAN clients can spoof them.
+- D7 Image from GHCR with the Watchtower label. If the package is private, Watchtower needs GHCR credentials: check its config in Phase 0.
+- D8 Google OAuth app in production mode to avoid 7 day token expiry.
+- D9 Models configured by env, not hard-coded.
+- D10 Plan app workouts read from get_scheduled_workouts. Garmin Coach tools not used.
+- D11 Port 8200 on the LAN, HTTPS on the tailnet at port 8443 through tailscale serve.
+- Open: sync-conflict probe result, Watchtower GHCR auth, ts.net redirect acceptance, internal Garmin MCP URL, Homer config path, home coordinates for forecast.

@@ -1,0 +1,40 @@
+services:
+  pulse:
+    image: ghcr.io/mark-130/pulse:latest
+    container_name: pulse
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "8200:8200"
+    environment:
+      TZ: Europe/London
+      NODE_ENV: production
+      PORT: "8200"
+      DATA_DIR: /data
+      PULSE_BASE_URL: "${PULSE_BASE_URL}"
+      PULSE_PASSWORD_HASH: "${PULSE_PASSWORD_HASH}"
+      PULSE_SESSION_SECRET: "${PULSE_SESSION_SECRET}"
+      PULSE_SECRET_KEY: "${PULSE_SECRET_KEY}"
+      GARMIN_MCP_URL: "${GARMIN_MCP_URL}"
+      NTFY_URL: "${NTFY_URL:-http://192.168.0.10:8090}"
+      NTFY_TOPIC: "${NTFY_TOPIC:-homelab-alerts}"
+      NTFY_TOKEN: "${NTFY_TOKEN:-}"
+      # Phase 2: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+      # Phase 4: ANTHROPIC_API_KEY, ANTHROPIC_MODEL_SMART, ANTHROPIC_MODEL_FAST, AI_MONTHLY_CAP_GBP
+      # Phase 5: HA_URL, HA_TOKEN
+    volumes:
+      - /mnt/data/AppData/pulse:/data
+    networks:
+      - homelab
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  homelab:
+    external: true

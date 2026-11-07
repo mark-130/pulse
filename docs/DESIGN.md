@@ -1,0 +1,13 @@
+# Design
+- Mobile-first installable PWA. Phone is primary, desktop is supported.
+- Dark by default, follows system, light available.
+- Screens: Today, Week, Races, Trends, Ask, Proposals, Settings. Bottom tab bar on mobile, side rail on desktop.
+- Today shows, in order: readiness verdict, today's workout, next race with taper status, pending proposals, key metrics.
+- shadcn/ui components, Tailwind tokens as CSS variables, one accent colour. Tap targets at least 44px.
+- Verdict colours (go, easy, swap, rest) are never the only signal: always icon plus text.
+- Confirm dialog: names the target system (Garmin, Google Calendar, Home Assistant), shows exact before and after, one primary Confirm button, a Reject button, no auto-confirm, no pre-selected default, destructive changes in red.
+- Every data card shows its last sync time. Stale data gets a banner. Offline shows the last cached snapshot.
+- Loading skeletons, plain error messages with Retry.
+- Charts: Recharts, pace as min/km, labelled axes, table fallback for accessibility.
+- Module widgets register a card (1x1 or 2x1) into a responsive grid. Reordering is a later feature.
+- Copy: UK English, short, numbers with units, no dashes, no hype.
