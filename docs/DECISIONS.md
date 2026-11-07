@@ -5,7 +5,7 @@
 - D4 Races come from the Running Events calendar, enriched by Garmin. Optional @pulse description line for priority, distance, goal and type. Inference fills gaps.
 - D5 All writes go through the proposal engine with a confirm tap.
 - D6 Own login. Tailscale identity headers rejected because LAN clients can spoof them.
-- D7 Image from GHCR with the Watchtower label. If the package is private, Watchtower needs GHCR credentials: check its config in Phase 0.
+- D7 Image from GHCR with the Watchtower label. Outcome (07/11/2026): the repo mark-130/pulse is private and CI pushed ghcr.io/mark-130/pulse:latest and :<sha> (run on commit d458f62). The package inherits the repo's private visibility, and Watchtower has no GHCR credentials (D13), so it cannot pull the image until Mark makes the package public or adds credentials. Package visibility is changed by Mark, not by Pulse tooling. The Dockerfile carries org.opencontainers.image.source so the package links to the repo.
 - D8 Google OAuth app in production mode to avoid 7 day token expiry.
 - D9 Models configured by env, not hard-coded.
 - D10 Plan app workouts read from get_scheduled_workouts. Garmin Coach tools not used.
@@ -16,4 +16,6 @@
 - D15 (07/11/2026) pnpm 12 and TypeScript 6: typescript-eslint does not yet support TypeScript 7, so TypeScript is pinned to 6.x. pnpm build scripts are allowed only for better-sqlite3 and esbuild (allowBuilds).
 - D16 (07/11/2026) The API is bundled with esbuild into one file. Only better-sqlite3 is installed at runtime in the image. Login rate limiting keys on the socket address, so behind tailscale serve all tailnet clients may share one address. Acceptable for a single user.
 - D17 (07/11/2026) Nightly SQLite backup is in ARCHITECTURE.md but not in the Phase 0 scope. It moves to Phase 1 with the first real data.
+- D18 (07/11/2026) CI runs on GitHub hosted runners (ubuntu-latest). The only self-hosted runner is registered to mark-130/homelab-config, so jobs on mark-130/pulse stayed queued. Switching back means registering a runner for this repo and setting runs-on: self-hosted.
+- D19 (07/11/2026) Session cookie Secure flag follows PULSE_BASE_URL (https only), never request headers. Use an http base URL for the LAN. If a https tailnet URL is also used, the cookie is still accepted there without Secure.
 - Open: sync-conflict probe result, ts.net redirect acceptance, home coordinates for forecast, whether Duplicati covers /mnt/data/AppData/pulse (no Restic container exists on this host), GHCR package visibility (D13).
