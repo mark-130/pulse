@@ -10,4 +10,10 @@
 - D9 Models configured by env, not hard-coded.
 - D10 Plan app workouts read from get_scheduled_workouts. Garmin Coach tools not used.
 - D11 Port 8200 on the LAN, HTTPS on the tailnet at port 8443 through tailscale serve.
-- Open: sync-conflict probe result, Watchtower GHCR auth, ts.net redirect acceptance, internal Garmin MCP URL, Homer config path, home coordinates for forecast.
+- D12 (07/11/2026, Phase 0 discovery) Internal Garmin MCP URL: http://garmin-mcp:8000/mcp (container garmin-mcp on the homelab network, streamable HTTP, no auth on the direct port). The nginx container garmin-mcp-proxy fronts it with a token and is not used by Pulse. A read-only initialize and tools/list succeeded: 157 tools. All 24 read tools and 3 write tools named in INTEGRATIONS.md exist, so no drift. The server also has schedule_week, schedule_workouts and unschedule_workouts: not in the allowlist, Pulse will not call them.
+- D13 (07/11/2026) Watchtower: label-enable mode, runs daily at 04:00, notifies via ntfy. It has no Docker config.json mounted, so it holds no GHCR credentials. The ghcr.io/mark-130/pulse package must be public, or credentials added to Watchtower, or auto-update will fail.
+- D14 (07/11/2026) Homer config is /mnt/data/AppData/homer/assets/config.yml. Pulse tile goes in the "Tools & Productivity" group with tag "tools".
+- D15 (07/11/2026) pnpm 12 and TypeScript 6: typescript-eslint does not yet support TypeScript 7, so TypeScript is pinned to 6.x. pnpm build scripts are allowed only for better-sqlite3 and esbuild (allowBuilds).
+- D16 (07/11/2026) The API is bundled with esbuild into one file. Only better-sqlite3 is installed at runtime in the image. Login rate limiting keys on the socket address, so behind tailscale serve all tailnet clients may share one address. Acceptable for a single user.
+- D17 (07/11/2026) Nightly SQLite backup is in ARCHITECTURE.md but not in the Phase 0 scope. It moves to Phase 1 with the first real data.
+- Open: sync-conflict probe result, ts.net redirect acceptance, home coordinates for forecast, whether Duplicati covers /mnt/data/AppData/pulse (no Restic container exists on this host), GHCR package visibility (D13).

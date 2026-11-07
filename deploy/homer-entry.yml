@@ -1,8 +1,8 @@
-# Add to the existing personal or productivity group in Homer's config.yml
-- name: "Pulse"
-  icon: "fas fa-person-running"
-  subtitle: "Training and home dashboard"
-  tag: "personal"
-  url: "http://192.168.0.10:8200"
-  target: "_blank"
-# Convention is a dashboard-icons webp logo. Check whether a suitable one exists, otherwise keep the icon above.
+# Add to the "Tools & Productivity" group in /mnt/data/AppData/homer/assets/config.yml (Homer reloads on refresh)
+      - name: "Pulse"
+        icon: "fas fa-person-running"
+        subtitle: "Training and home dashboard"
+        tag: "tools"
+        url: "http://192.168.0.10:8200"
+        target: "_blank"
+# Other tiles use a dashboard-icons webp via "logo". No Pulse logo exists there, so the icon above is kept.
