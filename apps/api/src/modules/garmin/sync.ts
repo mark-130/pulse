@@ -1,4 +1,4 @@
-import { and, gte, lte, notInArray } from "drizzle-orm";
+import { and, gte, inArray, lte, notInArray } from "drizzle-orm";
 import { BACKFILL_DAYS, BACKFILL_WINDOW_DAYS, SCHEDULE_AHEAD_DAYS, SCHEDULE_LOOKBACK_DAYS } from "@pulse/shared";
 import { eq } from "drizzle-orm";
 import type { z } from "zod";
@@ -25,6 +25,8 @@ const ACTIVITY_MAX_DAYS = 14;
 export interface SyncResult {
   /** First backfill of activities: how many 14 day windows are still waiting, and whether one failed this run. */
   backfill?: { pending: number; doneThisRun: number; failedWindow: string | null };
+  /** The 28 day readings backfill (readiness, sleep, HRV, resting heart rate, body battery), same rule as the activities one. */
+  readingsBackfill?: { pending: number; doneThisRun: number; failedWindow: string | null };
   /** At least one kind was fetched. A run where some kinds failed is partial, not failed. */
   ok: boolean;
   /** Some kinds failed and some succeeded. */
@@ -330,6 +332,130 @@ function activityDays(db: Db, now: Date): number {
   return Math.min(ACTIVITY_MAX_DAYS, Math.max(ACTIVITY_MIN_DAYS, gap));
 }
 
+// ---------------------------------------------------------------- readings backfill (D45)
+/** How many days of readings are kept for the review and filled in at the start. */
+export const READINGS_BACKFILL_DAYS = 28;
+/** Per-day kinds run at most two calls at a time. */
+export const READINGS_CONCURRENCY = 2;
+const READINGS_KEY = "garmin_readings_backfill";
+
+const READING_TASKS = [
+  { kind: "training_readiness", tool: "get_training_readiness", schema: up.readinessSchema },
+  { kind: "sleep", tool: "get_sleep_summary", schema: up.sleepSchema },
+  { kind: "hrv", tool: "get_hrv_data", schema: up.hrvSchema },
+  { kind: "rhr", tool: "get_rhr_day", schema: up.rhrSchema },
+] as const;
+
+interface ReadingsState {
+  windows: BackfillWindow[];
+  /** Days Garmin returned nothing for, per kind, so they are not asked again every run. */
+  empty: Record<string, string[]>;
+}
+
+function loadReadingsState(db: Db, today: string): ReadingsState {
+  const row = db.select().from(settings).where(eq(settings.key, READINGS_KEY)).get();
+  if (row) return row.value as ReadingsState;
+  const windows: BackfillWindow[] = [];
+  for (let i = 0; i * BACKFILL_WINDOW_DAYS < READINGS_BACKFILL_DAYS; i++) {
+    const to = addDays(today, -i * BACKFILL_WINDOW_DAYS);
+    windows.push({ from: addDays(to, -(BACKFILL_WINDOW_DAYS - 1)), to, done: false });
+  }
+  const state: ReadingsState = { windows, empty: {} };
+  saveReadingsState(db, state);
+  return state;
+}
+
+function saveReadingsState(db: Db, state: ReadingsState): void {
+  db.insert(settings).values({ key: READINGS_KEY, value: state }).onConflictDoUpdate({ target: settings.key, set: { value: state } }).run();
+}
+
+function daysIn(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+
+/** Runs the jobs with at most `limit` in flight. Every job runs even if another fails. */
+async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++] as T;
+      await fn(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+/**
+ * Fills in the last 28 days of readings (readiness, sleep, HRV, resting heart rate, body battery), reads only and summaries only.
+ * 14 day windows, newest first, one at a time with a pause, per-day kinds two calls at a time. A window with a failed call
+ * stops the backfill for this run and is tried again at the next run: days already stored are not fetched again.
+ */
+async function runReadingsBackfill(session: GarminSession, state: ReadingsState, ctx: Ctx, retry: RetryState): Promise<NonNullable<SyncResult["readingsBackfill"]>> {
+  let doneThisRun = 0;
+  let failedWindow: string | null = null;
+  const kinds = [...READING_TASKS.map((t) => t.kind), "body_battery"];
+  for (const w of state.windows) {
+    if (w.done) continue;
+    if (doneThisRun > 0) await retry.sleep(BACKFILL_PAUSE_MS);
+    const have = new Set(ctx.db.select({ kind: garminSnapshot.kind, date: garminSnapshot.date }).from(garminSnapshot).where(and(inArray(garminSnapshot.kind, kinds), gte(garminSnapshot.date, w.from), lte(garminSnapshot.date, w.to))).all().map((r) => `${r.kind}|${r.date}`));
+    const isEmpty = (kind: string, d: string) => state.empty[kind]?.includes(d) ?? false;
+    const markEmpty = (kind: string, d: string) => void (state.empty[kind] = [...(state.empty[kind] ?? []), d]);
+    let failed = false;
+
+    const jobs = READING_TASKS.flatMap((t) => daysIn(w.from, w.to).filter((d) => !have.has(`${t.kind}|${d}`) && !isEmpty(t.kind, d)).map((d) => ({ t, d })));
+    await pool(jobs, READINGS_CONCURRENCY, async ({ t, d }) => {
+      try {
+        const res = await callWithRetry(session, t.tool, { date: d }, retry);
+        if (res.kind === "message") {
+          if (/^no\b/i.test(res.text.trim())) markEmpty(t.kind, d);
+          else failed = true;
+          return;
+        }
+        if (!t.schema.safeParse(res.data).success) return markEmpty(t.kind, d);
+        upsertSnapshot(ctx, t.kind, d, res.data);
+      } catch {
+        failed = true;
+      }
+    });
+
+    // Body battery is one ranged call for the window. Its days are stored one snapshot each, in the same one entry array shape.
+    const missingBb = daysIn(w.from, w.to).filter((d) => !have.has(`body_battery|${d}`) && !isEmpty("body_battery", d));
+    if (missingBb.length > 0 && !failed) {
+      try {
+        const res = await callWithRetry(session, "get_body_battery", { start_date: w.from, end_date: w.to }, retry);
+        if (res.kind === "message") {
+          if (/^no\b/i.test(res.text.trim())) for (const d of missingBb) markEmpty("body_battery", d);
+          else failed = true;
+        } else {
+          const parsed = up.bodyBatterySchema.safeParse(res.data);
+          if (!parsed.success) for (const d of missingBb) markEmpty("body_battery", d);
+          else {
+            for (const d of missingBb) {
+              const entry = parsed.data.find((e) => e.date === d);
+              if (entry) upsertSnapshot(ctx, "body_battery", d, [entry]);
+              else markEmpty("body_battery", d);
+            }
+          }
+        }
+      } catch {
+        failed = true;
+      }
+    }
+
+    if (failed) {
+      failedWindow = `${w.from} to ${w.to}`;
+      saveReadingsState(ctx.db, state);
+      break;
+    }
+    w.done = true;
+    doneThisRun++;
+    saveReadingsState(ctx.db, state);
+  }
+  return { pending: state.windows.filter((x) => !x.done).length, doneThisRun, failedWindow };
+}
+
 /** One read-only pass over Garmin. Never throws for a single failed call. Throws only if it cannot connect. */
 export async function runGarminSync(deps: { db: Db; connect: GarminConnector; now?: () => Date; sleep?: Sleep }): Promise<SyncResult> {
   const now = (deps.now ?? (() => new Date()))();
@@ -337,6 +463,7 @@ export async function runGarminSync(deps: { db: Db; connect: GarminConnector; no
   const ctx: Ctx = { db: deps.db, today, nowIso: now.toISOString() };
   // Decided before the routine tasks store any activity, or a first run would look like an old database.
   const windows = loadBackfill(deps.db, today);
+  const readingsState = loadReadingsState(deps.db, today);
   const days = activityDays(deps.db, now);
   const session = await deps.connect();
   try {
@@ -351,7 +478,8 @@ export async function runGarminSync(deps: { db: Db; connect: GarminConnector; no
     const failed = tasks.filter((t) => t.status === "failed").length;
     // The backfill runs last and never makes the run partial: a failed window is simply tried again next run.
     const backfill = await runBackfill(session, windows, ctx, retry);
-    return { ok: failed < tasks.length, partial: failed > 0 && failed < tasks.length, tasks, backfill };
+    const readingsBackfill = await runReadingsBackfill(session, readingsState, ctx, retry);
+    return { ok: failed < tasks.length, partial: failed > 0 && failed < tasks.length, tasks, backfill, readingsBackfill };
   } finally {
     await session.close().catch(() => undefined);
   }

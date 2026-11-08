@@ -1,8 +1,12 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { aiStatusSchema, debriefOneResponseSchema, debriefsResponseSchema, leadUpResponseSchema, proposalSchema, reviewResponseSchema, todayResponseSchema, type LeadUp } from "@pulse/shared";
+import { aiStatusSchema, briefingResponseSchema, debriefOneResponseSchema, debriefsResponseSchema, leadUpResponseSchema, proposalSchema, reviewResponseSchema, todayResponseSchema, type LeadUp } from "@pulse/shared";
 import { activity, aiText, aiUsage, auditLog, garminSnapshot, proposal as proposalTable, workout } from "../src/db/schema.js";
+import { and, eq } from "drizzle-orm";
+import type { LlmClient, LlmRequest } from "../src/modules/ai/llm.js";
+import { fixGreeting, greetingWord } from "../src/dates.js";
+import { matchRuns, nameMatches, runsLine, titleWorkoutPart, type KnownWorkout, type ScheduleHistory } from "../src/modules/ai/schedule-history.js";
 import { COACH_NOTE, mentionsTrainingAdvice } from "../src/modules/ai/coaching.js";
 import { PROPOSAL_TOOLS } from "../src/modules/ai/proposal-tools.js";
 import { BRIEFING_TASK, DEBRIEF_TASK, SYSTEM_PROMPT, SYSTEM_PROMPT_PROPOSALS, WEEKLY_REVIEW_TASK } from "../src/modules/ai/prompts.js";
@@ -173,27 +177,6 @@ describe("weekly review", () => {
     expect(body).toMatch(/"hrvLastNightMs":\{/);
     expect(body).toMatch(/"readiness":\{/);
     expect(WEEKLY_REVIEW_TASK).toContain("Do not suggest, recommend or judge anything about training");
-  });
-
-  it("reports a workout whose date moved between schedule snapshots", async () => {
-    const llm = mockLlm(() => text("ok"));
-    const s = await setup({ llm });
-    const sched = (date: string) => ({ count: 1, scheduled_workouts: [{ date, scheduled_workout_id: 777, workout_id: 1, name: "Moved tempo", sport: "running", completed: false, estimated_duration_seconds: 3000 }] });
-    s.t.handle.db.insert(garminSnapshot).values({ kind: "scheduled_workouts", date: "2026-11-03", payload: sched("2026-11-05"), fetchedAt: "x" }).run();
-    s.t.handle.db.insert(garminSnapshot).values({ kind: "scheduled_workouts", date: "2026-11-05", payload: sched("2026-11-06"), fetchedAt: "x" }).run();
-    await s.review(WEEK);
-    expect(String(llm.requests[0]?.messages[0]?.content)).toMatch(/"movedWorkouts":\[\{"name":"Moved tempo","from":"2026-11-05","to":"2026-11-06"\}\]/);
-  });
-
-  it("says which scheduled sessions were done and which were missed", async () => {
-    const llm = mockLlm(() => text("ok"));
-    const s = await setup({ llm });
-    s.t.handle.db.insert(workout).values({ garminScheduledId: "m1", date: "2026-11-03", name: "Missed tempo", durationS: 3000, completed: false, firstSeen: "x", lastSeen: "x" }).run();
-    s.t.handle.db.insert(workout).values({ garminScheduledId: "d1", date: "2026-11-05", name: "Done intervals", durationS: 3600, completed: true, firstSeen: "x", lastSeen: "x" }).run();
-    await s.review(WEEK);
-    const body = String(llm.requests[0]?.messages[0]?.content);
-    expect(body).toMatch(/"name":"Missed tempo"[^}]*"status":"missed"/);
-    expect(body).toMatch(/"name":"Done intervals"[^}]*"status":"done"/);
   });
 
   it("says AI is off, or the cap is reached, and makes no call", async () => {
@@ -429,5 +412,196 @@ describe("secrets and prompts", () => {
 
   it("no prompt contains an en or em dash", () => {
     for (const p of [SYSTEM_PROMPT, SYSTEM_PROMPT_PROPOSALS, BRIEFING_TASK, WEEKLY_REVIEW_TASK, DEBRIEF_TASK, COACH_NOTE]) expect(p).not.toMatch(/[\u2013\u2014]/);
+  });
+});
+
+
+// ---------------------------------------------------------------- weekly review facts (D45)
+type Ctx = {
+  scheduledInGarmin: { date: string; name: string; status: string }[];
+  scheduleNote: string | null;
+  scheduledMinutes: number | null;
+  movedThisWeek: { name: string; from: string; to: string; text: string }[];
+  runs: { recorded: number; line: string | null };
+  nextWeek: { scheduledInGarmin: { date: string; name: string; moved?: string }[] };
+};
+const contextOf = (llm: { requests: LlmRequest[] }, i = 0): Ctx => {
+  const body = String(llm.requests[i]?.messages[0]?.content);
+  const start = body.indexOf("{", body.indexOf("<data"));
+  return JSON.parse(body.slice(start, body.indexOf("\n</data>"))) as Ctx;
+};
+const sched = (id: number, name: string, date: string, completed = false) => ({ date, scheduled_workout_id: id, workout_id: 1, name, sport: "running", completed, estimated_duration_seconds: 3000 });
+const putSnapshot = (s: Awaited<ReturnType<typeof setup>>, snapDate: string, works: ReturnType<typeof sched>[]) => {
+  const existing = s.t.handle.db.select().from(garminSnapshot).where(and(eq(garminSnapshot.kind, "scheduled_workouts"), eq(garminSnapshot.date, snapDate))).get();
+  const payload = { count: works.length, scheduled_workouts: works };
+  if (existing) s.t.handle.db.update(garminSnapshot).set({ payload }).where(eq(garminSnapshot.id, existing.id)).run();
+  else s.t.handle.db.insert(garminSnapshot).values({ kind: "scheduled_workouts", date: snapDate, payload, fetchedAt: "x" }).run();
+};
+const listNow = (s: Awaited<ReturnType<typeof setup>>, id: number, name: string, date: string) =>
+  s.t.handle.db.insert(workout).values({ garminScheduledId: String(id), date, name, durationS: 3000, completed: false, firstSeen: "x", lastSeen: "x" }).run();
+
+describe("weekly review: moves, matching, coverage (D45)", () => {
+  const WEEK = "2026-11-02";
+  const run = async (s: Awaited<ReturnType<typeof setup>>, llm: LlmClient & { requests: LlmRequest[] }, week = WEEK) => {
+    await s.review(week);
+    return contextOf(llm, llm.requests.length - 1);
+  };
+
+  it("a move is read in the true direction (first snapshot date to the current date) and belongs to the week of its current date", async () => {
+    const llm = mockLlm(() => text("ok"));
+    const s = await setup({ llm });
+    // The case from the live review: Garmin lists the workout on 10/11 now, and an earlier snapshot had it on 09/11.
+    putSnapshot(s, "2026-11-05", [sched(7001, "30' Race Pace", "2026-11-09"), sched(7002, "Long easy", "2026-11-12"), sched(7003, "Mid week", "2026-11-05")]);
+    putSnapshot(s, "2026-11-06", [sched(7001, "30' Race Pace", "2026-11-10"), sched(7002, "Long easy", "2026-11-11"), sched(7003, "Mid week", "2026-11-06")]);
+    listNow(s, 7001, "30' Race Pace", "2026-11-10");
+    listNow(s, 7002, "Long easy", "2026-11-11");
+    listNow(s, 7003, "Mid week", "2026-11-06");
+    const c = await run(s, llm);
+    // 7003 moved 05/11 to 06/11 and its current date is this week.
+    expect(c.movedThisWeek).toEqual([{ name: "Mid week", from: "2026-11-05", to: "2026-11-06", text: "moved from 05/11 to 06/11" }]);
+    // 7001 and 7002 now sit next week, and say so there, in the direction the snapshots show (including a move to an earlier day).
+    const next = Object.fromEntries(c.nextWeek.scheduledInGarmin.map((w) => [w.name, w.moved]));
+    expect(next["30' Race Pace"]).toBe("moved from 09/11 to 10/11");
+    expect(next["Long easy"]).toBe("moved from 12/11 to 11/11");
+    expect(JSON.stringify(c.movedThisWeek)).not.toContain("Race Pace");
+  });
+
+  it("a dry-run reschedule is not a move: Garmin was never changed", async () => {
+    const llm = mockLlm(() => text("ok"));
+    const s = await setup({ llm });
+    listNow(s, 7001, "30' Race Pace", "2026-11-10");
+    s.t.handle.db.insert(proposalTable).values({
+      id: "dry", kind: "garmin.reschedule", targetSystem: "garmin", payload: {}, before: { scheduledId: "7001", name: "30' Race Pace", date: "2026-11-10", durationS: 3000, completed: false }, after: { scheduledId: "7001", name: "30' Race Pace", date: "2026-11-09", durationS: 3000, completed: false },
+      createdBy: "user", stateHash: "x", status: "applied", createdAt: "2026-11-07T10:00:00Z", expiresAt: "2026-11-08T10:00:00Z", decidedAt: "2026-11-07T11:00:00Z", result: { mode: "dry_run" },
+    }).run();
+    const c = await run(s, llm);
+    expect(c.movedThisWeek).toEqual([]);
+    expect(c.nextWeek.scheduledInGarmin.find((w) => w.name === "30' Race Pace")?.moved).toBeUndefined();
+    expect(JSON.stringify(c)).not.toContain("moved from");
+  });
+
+  it("a past week with no schedule recording is never described as having 0 scheduled", async () => {
+    const llm = mockLlm(() => text("ok"));
+    const s = await setup({ llm });
+    const past = await run(s, llm, "2026-10-26");
+    expect(past.scheduleNote).toBe("Missed sessions cannot be checked for this week because schedule recording began on 07/11.");
+    expect(past.scheduledMinutes).toBeNull();
+    expect(past.scheduledInGarmin).toEqual([]);
+    expect(JSON.stringify(past)).not.toMatch(/"scheduledMinutes":0\b/);
+    expect(past.scheduledInGarmin.some((w) => w.status === "missed")).toBe(false);
+    expect(WEEKLY_REVIEW_TASK).toMatch(/Never say that a week had 0 scheduled/);
+  });
+
+  it("a week that recording only partly covers says which days cannot be checked", async () => {
+    const llm = mockLlm(() => text("ok"));
+    const s = await setup({ llm });
+    const c = await run(s, llm);
+    expect(c.scheduleNote).toBe("Missed sessions cannot be checked for 02/11 to 06/11 because schedule recording began on 07/11.");
+    expect(c.scheduledMinutes).toBe(110); // only the days it covers: the 08/11 workout, never zero and never a guess about earlier days
+  });
+
+  it("with snapshot coverage, a workout on a past date with no matching activity is missed and a matched one is done", async () => {
+    const llm = mockLlm(() => text("ok"));
+    const s = await setup({ llm });
+    putSnapshot(s, "2026-11-01", [sched(8001, "Missed tempo", "2026-11-03"), sched(8002, "9x1'45 Intervals", "2026-11-05"), sched(8003, "Easy 50", "2026-11-09")]);
+    const c = await run(s, llm);
+    expect(c.scheduleNote).toBeNull();
+    const by = Object.fromEntries(c.scheduledInGarmin.map((w) => [w.name, w.status]));
+    expect(by["Missed tempo"]).toBe("missed");
+    expect(by["9x1'45 Intervals"]).toBe("done"); // the recorded run "Broxtowe - 9x1'45 Intervals Run" carries the workout name
+    expect(c.scheduledInGarmin.find((w) => w.name === "Easy 50")).toBeUndefined(); // next week
+  });
+
+  it("reports how recorded runs were matched, with the method and how reliable it is", async () => {
+    const llm = mockLlm(() => text("ok"));
+    const s = await setup({ llm });
+    putSnapshot(s, "2026-11-01", [sched(8002, "9x1'45 Intervals", "2026-11-05"), sched(8004, "50' Easy Run", "2026-11-07")]);
+    const r = reviewResponseSchema.parse(await (await s.review(WEEK)).json());
+    expect(contextOf(llm).runs.line).toBe("2 runs were recorded and all 2 were scheduled workouts.");
+    expect(r.review?.coverage?.runsLine).toBe("2 runs were recorded and all 2 were scheduled workouts.");
+    expect(r.review?.coverage?.matchingNote).toMatch(/does not link a recorded run to its scheduled workout.*matched by date and by the workout name inside the activity title.*can miss a run that was renamed/);
+  });
+
+  it("states the days of readings it used, counted in code and not by the model", async () => {
+    const llm = mockLlm(() => text("I used 99 days of readings."));
+    const s = await setup({ llm });
+    // Keep only the last 5 days of HRV.
+    for (const row of s.t.handle.db.select().from(garminSnapshot).where(eq(garminSnapshot.kind, "hrv")).all()) if (row.date < "2026-11-03") s.t.handle.db.delete(garminSnapshot).where(eq(garminSnapshot.id, row.id)).run();
+    const r = reviewResponseSchema.parse(await (await s.review(WEEK)).json());
+    expect(r.review?.text).toContain("99 days"); // the model's words are kept as written
+    expect(r.review?.coverage?.readingsLine).toBe("Readings used (of the last 28 days): readiness 28 days, sleep 28 days, HRV 5 days, resting heart rate 28 days, body battery 1 day.");
+    expect(WEEKLY_REVIEW_TASK).toContain("Do not state how many days of readings there are");
+    const again = reviewResponseSchema.parse(await (await s.t.get(`/api/review?week=${WEEK}`)).json());
+    expect(again.review?.coverage?.readingsLine).toBe(r.review?.coverage?.readingsLine); // cached with the review
+  });
+});
+
+describe("matching a recorded run to a scheduled workout by name", () => {
+  const w = (id: string, name: string, date: string): KnownWorkout => ({ id, name, date, firstDate: date, durationS: 3000, completed: false, listed: false });
+  const hist = (workouts: KnownWorkout[], began = "2026-11-01"): ScheduleHistory => ({ recordingBegan: began, workouts });
+
+  it("takes the workout name from the part of the title after the location prefix", () => {
+    expect(titleWorkoutPart("Broxtowe - 50' Easy Run")).toBe("50' Easy Run");
+    expect(titleWorkoutPart("Morning Run")).toBe("Morning Run");
+    expect(titleWorkoutPart("Park - Long - Slow")).toBe("Long - Slow");
+  });
+  it("matches the workout name inside the title, ignoring case, spacing and curly quotes", () => {
+    expect(nameMatches("Broxtowe - 50' Easy Run", "50' Easy Run")).toBe(true);
+    expect(nameMatches("Broxtowe - 9x1'45 Intervals Run", "9x1'45 Intervals")).toBe(true);
+    expect(nameMatches("Broxtowe - 50\u2019 easy  run", "50' Easy Run")).toBe(true);
+    expect(nameMatches("Broxtowe - 1h50 Long Run", "1h50 Long Run")).toBe(true);
+    expect(nameMatches("Broxtowe - Running", "50' Easy Run")).toBe(false);
+    expect(nameMatches("Morning Run", "50' Easy Run")).toBe(false);
+    expect(nameMatches("x", "x")).toBe(false);
+  });
+  it("matches on the same date only, one workout per run", () => {
+    const h = hist([w("1", "50' Easy Run", "2026-11-04"), w("2", "50' Easy Run", "2026-11-05")]);
+    const m = matchRuns(h, [{ id: "a", date: "2026-11-05", name: "Broxtowe - 50' Easy Run" }, { id: "b", date: "2026-11-05", name: "Broxtowe - 50' Easy Run" }]);
+    expect(m.pairs.get("a")?.id).toBe("2");
+    expect(m.pairs.has("b")).toBe(false); // the only workout that day is already taken
+    expect(matchRuns(h, [{ id: "c", date: "2026-11-06", name: "Broxtowe - 50' Easy Run" }]).matched).toBe(0);
+  });
+  it("runs before recording began cannot be checked, and are said so", () => {
+    const m = matchRuns(hist([w("1", "Tempo Day", "2026-11-07")], "2026-11-07"), [{ id: "a", date: "2026-11-03", name: "Park - Easy Run" }, { id: "b", date: "2026-11-07", name: "Park - Easy Run" }]);
+    expect(m).toMatchObject({ checkable: 1, matched: 0, uncheckable: 1 });
+    expect(runsLine(2, m, "2026-11-07")).toBe("0 of 1 recorded run matched a scheduled workout. 1 recorded run falls before schedule recording began on 07/11, so it cannot be matched.");
+  });
+  it("words the past week as all matched or as a count, never as zero scheduled", () => {
+    const five = Array.from({ length: 5 }, (_, i) => ({ id: String(i), date: `2026-11-0${i + 1}`, name: "Park - Run Day" }));
+    const all = hist(five.map((r, i) => w(`w${i}`, "Run Day", r.date)));
+    expect(runsLine(5, matchRuns(all, five), "2026-11-01")).toBe("5 runs were recorded and all 5 were scheduled workouts.");
+    const three = hist(five.slice(0, 3).map((r, i) => w(`w${i}`, "Run Day", r.date)));
+    expect(runsLine(5, matchRuns(three, five), "2026-11-01")).toBe("3 of 5 recorded runs matched a scheduled workout.");
+    expect(runsLine(0, matchRuns(all, []), "2026-11-01")).toBeNull();
+    expect(runsLine(2, matchRuns(hist([], "2026-11-07"), [{ id: "a", date: "2026-11-03", name: "x - Easy" }, { id: "b", date: "2026-11-04", name: "x - Easy" }]), "2026-11-07")).toBe("2 recorded runs. They cannot be matched to scheduled workouts because schedule recording began on 07/11.");
+    for (const l of [runsLine(5, matchRuns(three, five), "2026-11-01"), runsLine(2, matchRuns(hist([], "2026-11-07"), []), "2026-11-07")]) expect(l ?? "").not.toMatch(/\b0 min|nothing scheduled|no workouts/i);
+  });
+});
+
+describe("greeting by local time (D45)", () => {
+  const at = (iso: string) => new Date(iso);
+  it("morning before 12:00, afternoon until 17:00, otherwise evening, in London time", () => {
+    expect(greetingWord(at("2026-11-08T06:00:00Z"))).toBe("Good morning");
+    expect(greetingWord(at("2026-11-08T11:59:00Z"))).toBe("Good morning");
+    expect(greetingWord(at("2026-11-08T12:00:00Z"))).toBe("Good afternoon");
+    expect(greetingWord(at("2026-11-08T16:59:00Z"))).toBe("Good afternoon");
+    expect(greetingWord(at("2026-11-08T17:00:00Z"))).toBe("Good evening");
+    expect(greetingWord(at("2026-11-08T20:21:00Z"))).toBe("Good evening");
+    expect(greetingWord(at("2026-07-08T15:59:00Z"))).toBe("Good afternoon"); // BST: 15:59 UTC is 16:59 in London
+    expect(greetingWord(at("2026-07-08T16:00:00Z"))).toBe("Good evening"); // 17:00 in London
+  });
+  it("replaces a wrong greeting at the start of the text and leaves other text alone", () => {
+    const evening = at("2026-11-08T20:21:00Z");
+    expect(fixGreeting("Good morning Mark. Readiness is 35.", evening)).toBe("Good evening Mark. Readiness is 35.");
+    expect(fixGreeting("good afternoon Mark.", evening)).toBe("Good evening Mark.");
+    expect(fixGreeting("Readiness is 35. Good morning.", evening)).toBe("Readiness is 35. Good morning.");
+  });
+  it("the briefing is told the greeting, and a wrong one from the model is corrected in code", async () => {
+    const llm = mockLlm(() => text("Good morning Mark. Readiness is 63 on 07/11."));
+    const s = await setup({ llm, clock: () => new Date(`${TODAY}T20:21:00Z`) });
+    const r = briefingResponseSchema.parse(await (await s.json("/api/briefing/generate")).json());
+    expect(String(llm.requests[0]?.messages[0]?.content)).toContain('"greeting":"Good evening"');
+    expect(r.briefing?.text).toBe("Good evening Mark. Readiness is 63 on 07/11.");
+    expect(BRIEFING_TASK).toContain("Never use a different greeting");
   });
 });

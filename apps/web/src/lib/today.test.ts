@@ -7,6 +7,12 @@ describe("today helpers", () => {
     expect(greetingFor(new Date("2026-11-07T14:00:00Z"))).toBe("Afternoon, Mark");
     expect(greetingFor(new Date("2026-11-07T20:00:00Z"))).toBe("Evening, Mark");
     expect(greetingFor(new Date("2026-07-07T11:30:00Z"))).toBe("Afternoon, Mark");
+    // Before 12:00 morning, until 17:00 afternoon, otherwise evening (the briefing follows the same rule on the server).
+    expect(greetingFor(new Date("2026-11-07T11:59:00Z"))).toBe("Morning, Mark");
+    expect(greetingFor(new Date("2026-11-07T12:00:00Z"))).toBe("Afternoon, Mark");
+    expect(greetingFor(new Date("2026-11-07T16:59:00Z"))).toBe("Afternoon, Mark");
+    expect(greetingFor(new Date("2026-11-07T17:00:00Z"))).toBe("Evening, Mark");
+    expect(greetingFor(new Date("2026-11-07T20:21:00Z"))).toBe("Evening, Mark");
   });
   it("formats the date as dd/mm/yyyy", () => {
     expect(dateLine(new Date("2026-11-07T12:00:00Z"))).toBe("Saturday 07/11/2026");

@@ -109,7 +109,15 @@ export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export const MAX_TOOL_CALLS = 8;
 
 /** Weekly review, cached per week (Monday date) in ai_text. */
-export const reviewSchema = z.object({ week: z.string(), text: z.string(), generatedAt: z.string(), model: z.string(), coversUntil: z.string() });
+/** Lines worked out in code, never by the model: how many days of readings were used, what the schedule recording covers, and how runs were matched. */
+export const reviewCoverageSchema = z.object({
+  readingsLine: z.string(),
+  scheduleNote: z.string().nullable(),
+  runsLine: z.string().nullable(),
+  matchingNote: z.string().nullable(),
+});
+export type ReviewCoverage = z.infer<typeof reviewCoverageSchema>;
+export const reviewSchema = z.object({ week: z.string(), text: z.string(), generatedAt: z.string(), model: z.string(), coversUntil: z.string(), coverage: reviewCoverageSchema.nullable().default(null) });
 export type Review = z.infer<typeof reviewSchema>;
 export const reviewResponseSchema = z.object({
   state: aiStateSchema,

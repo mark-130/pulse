@@ -6,7 +6,7 @@ import { aiStateLine, DebriefView, ReviewView, type BlockState } from "./AiBlock
 const noop = () => undefined;
 const s = (o: Partial<BlockState> = {}): BlockState => ({ state: "ok", pending: false, failed: false, onWrite: noop, onRefresh: noop, ...o });
 const html = (node: React.ReactElement) => renderToString(node).replaceAll("<!-- -->", "");
-const review: Review = { week: "2026-11-02", text: "Load: 110 minutes against 110 scheduled.", generatedAt: "2026-11-08T19:00:00Z", model: "m", coversUntil: "2026-11-07" };
+const review: Review = { week: "2026-11-02", text: "Load: 110 minutes against 110 scheduled.", generatedAt: "2026-11-08T19:00:00Z", model: "m", coversUntil: "2026-11-07", coverage: null };
 const debrief: Debrief = { activityId: "1", text: "A 7.86 km easy run.", generatedAt: "2026-11-07T12:00:00Z", model: "m" };
 
 describe("weekly review block", () => {
@@ -27,6 +27,21 @@ describe("weekly review block", () => {
   });
   it("keeps the earlier review when a refresh fails", () => {
     expect(html(<ReviewView review={review} weekEnd="x" {...s({ failed: true })} />)).toContain("The earlier review is kept.");
+  });
+});
+
+describe("review coverage lines (computed in code)", () => {
+  const withCoverage: Review = { ...review, coverage: { readingsLine: "Readings used (of the last 28 days): readiness 28 days, sleep 28 days, HRV 5 days, resting heart rate 28 days, body battery 1 day.", scheduleNote: "Missed sessions cannot be checked for 02/11 to 06/11 because schedule recording began on 07/11.", runsLine: "3 of 5 recorded runs matched a scheduled workout.", matchingNote: "Garmin does not link a recorded run to its scheduled workout." } };
+  it("shows how many runs matched, why missed sessions cannot be checked, the days of readings used, and how runs are matched", () => {
+    const h = html(<ReviewView review={withCoverage} weekEnd="2026-11-08" {...s()} />);
+    expect(h).toContain("3 of 5 recorded runs matched a scheduled workout.");
+    expect(h).toContain("Missed sessions cannot be checked for 02/11 to 06/11 because schedule recording began on 07/11.");
+    expect(h).toContain("Readings used (of the last 28 days): readiness 28 days");
+    expect(h).toContain("How runs are matched");
+    expect(h).toContain("does not link a recorded run");
+  });
+  it("shows nothing extra for an older review with no coverage", () => {
+    expect(html(<ReviewView review={review} weekEnd="2026-11-08" {...s()} />)).not.toContain("Readings used");
   });
 });
 

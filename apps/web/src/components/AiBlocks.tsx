@@ -47,6 +47,19 @@ export function ReviewView({ review, weekEnd, ...b }: BlockState & { review: Rev
       <Header title="Weekly review">{review && <span className="t-label">Generated {formatClockDay(review.generatedAt)}</span>}</Header>
       <span id="review-title" className="sr-only">Weekly review</span>
       {review && <Prose text={review.text} />}
+      {review?.coverage && (
+        <div className="mt-2 space-y-1">
+          {review.coverage.runsLine && <p className="t-secondary [overflow-wrap:anywhere]">{review.coverage.runsLine}</p>}
+          {review.coverage.scheduleNote && <p className="t-secondary [overflow-wrap:anywhere]">{review.coverage.scheduleNote}</p>}
+          <p className="t-label [overflow-wrap:anywhere]">{review.coverage.readingsLine}</p>
+          {review.coverage.matchingNote && (
+            <details className="min-w-0">
+              <summary className="t-label flex min-h-11 cursor-pointer items-center">How runs are matched</summary>
+              <p className="t-label pb-2 [overflow-wrap:anywhere]">{review.coverage.matchingNote}</p>
+            </details>
+          )}
+        </div>
+      )}
       {review && review.coversUntil < weekEnd && <p className="t-label mt-2">Covers the week up to {formatDate(review.coversUntil)}.</p>}
       {s.pending && <p role="status" className="leading-[1.6]">Writing your review.</p>}
       {!review && !s.pending && line && <p className="leading-[1.6]">{line}</p>}

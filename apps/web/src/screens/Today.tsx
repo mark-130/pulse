@@ -56,7 +56,7 @@ function BriefingBubble({ flow }: { flow: ReturnType<typeof useBriefingFlow> }) 
     <section className="card-briefing" aria-labelledby="briefing-title">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <Sparkles aria-hidden className="size-4 text-accent" />
-        <h2 id="briefing-title" className="t-card-title !text-[15px]">Morning briefing</h2>
+        <h2 id="briefing-title" className="t-card-title !text-[15px]">Briefing</h2>
         <AiChip />
         {b && <span className="t-label">Generated {formatTime(b.generatedAt)}</span>}
       </div>

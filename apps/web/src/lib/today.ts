@@ -2,7 +2,7 @@ const TZ = "Europe/London";
 
 export function greetingFor(now: Date): string {
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hourCycle: "h23", timeZone: TZ }).format(now));
-  const part = hour < 12 ? "Morning" : hour < 18 ? "Afternoon" : "Evening";
+  const part = hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : "Evening";
   return `${part}, Mark`;
 }
 

@@ -7,7 +7,7 @@ import { FailureDetails } from "./FailureDetails";
 const noop = () => undefined;
 const failure = { reason: "model_not_found", label: "Model not found", detail: "model: claude-x not found", at: "2026-11-08T19:41:00Z" };
 const s = (o: Partial<BlockState> = {}): BlockState => ({ state: "ok", pending: false, failed: false, onWrite: noop, onRefresh: noop, ...o });
-const review: Review = { week: "2026-11-02", text: "x", generatedAt: "2026-11-08T19:00:00Z", model: "m", coversUntil: "2026-11-08" };
+const review: Review = { week: "2026-11-02", text: "x", generatedAt: "2026-11-08T19:00:00Z", model: "m", coversUntil: "2026-11-08", coverage: null };
 const debrief: Debrief = { activityId: "1", text: "x", generatedAt: "2026-11-07T12:00:00Z", model: "m" };
 
 describe("failure details", () => {

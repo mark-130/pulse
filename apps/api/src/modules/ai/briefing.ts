@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { GARMIN_GROUPS, type Briefing } from "@pulse/shared";
-import { londonDate } from "../../dates.js";
+import { fixGreeting, greetingWord, londonDate } from "../../dates.js";
 import { briefing as briefingTable } from "../../db/schema.js";
 import { getToday } from "../garmin/queries.js";
 import { groupStatuses } from "../garmin/freshness.js";
@@ -34,6 +34,7 @@ export function briefingContext(rt: AiRuntime) {
   return {
     context: {
       today: t.date,
+      greeting: greetingWord(now),
       staleGroups,
       readings: t.verdict.signals.map((x) => x.text),
       garminReadiness: t.readiness,
@@ -63,7 +64,7 @@ export async function generateBriefing(rt: AiRuntime): Promise<Briefing> {
     maxTokens: MAX_TOKENS,
     messages: [{ role: "user", content: `${BRIEFING_TASK}\n\nContext:\n${wrapData("briefing_context", context)}` }],
   });
-  const text = textFrom(res);
+  const text = fixGreeting(textFrom(res), rt.now());
   const now = rt.now();
   const date = londonDate(now);
   const generatedAt = now.toISOString();

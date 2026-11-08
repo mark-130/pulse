@@ -30,3 +30,14 @@ export function normaliseTitle(title: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/** The greeting for the local time in Europe/London: before 12:00 morning, until 17:00 afternoon, otherwise evening. */
+export function greetingWord(now: Date): "Good morning" | "Good afternoon" | "Good evening" {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hourCycle: "h23", timeZone: TZ }).format(now));
+  return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+}
+
+/** Replaces a wrong greeting at the start of AI text with the right one. The model is told the greeting, and this makes it certain. */
+export function fixGreeting(text: string, now: Date): string {
+  return text.replace(/^\s*good (morning|afternoon|evening)\b/i, greetingWord(now));
+}
