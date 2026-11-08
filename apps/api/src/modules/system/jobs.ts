@@ -67,7 +67,8 @@ export function createTrackedJob(opts: {
       log.error({ job: name, failures, error: message }, "job failed");
       const alertedToday = prev?.lastAlertAt ? londonDate(new Date(prev.lastAlertAt)) === londonDate(now) : false;
       if (failures >= ALERT_AFTER_FAILURES && !alertedToday) {
-        await notify(`${name} has failed ${failures} times in a row. Last error: ${message}`);
+        // A notifier must never throw, but a broken one must not break the job either.
+        await Promise.resolve(notify(`${name} has failed ${failures} times in a row. Last error: ${message}`)).catch(() => undefined);
         db.update(syncState).set({ lastAlertAt: nowIso }).where(eq(syncState.job, name)).run();
       }
     }

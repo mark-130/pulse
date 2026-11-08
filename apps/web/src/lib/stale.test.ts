@@ -14,7 +14,7 @@ const groups = (o: Partial<Record<GroupStatus["id"], Partial<GroupStatus>>> = {}
   grp("trends", "trends", true, false, o.trends),
 ];
 const status = (garmin: Partial<SyncStatus["garmin"]>, g: GroupStatus[] = []): SyncStatus => ({
-  now: "2026-11-07T12:00:00Z", staleAfterMinutes: 90, garmin: { ...job, ...garmin }, groups: g, backup: job,
+  now: "2026-11-07T12:00:00Z", staleAfterMinutes: 90, garmin: { ...job, ...garmin }, groups: g, alertsEnabled: true, backup: job,
 });
 const fresh = { lastOk: "2026-11-07T11:50:00Z", ageMinutes: 10, stale: false };
 const LONG = "Garmin tool error: " + "Error retrieving activities: HTTPSConnectionPool(host=[url], port=443): Read timed out. (read timeout=15)".repeat(20);

@@ -84,6 +84,8 @@ export const syncStatusSchema = z.object({
   /** lastOk, ageMinutes and stale describe the oldest critical group (plan, readiness). */
   garmin: jobStatusSchema,
   groups: z.array(groupStatusSchema),
+  /** False when ntfy is not configured, so failures show only in the app. */
+  alertsEnabled: z.boolean(),
   backup: jobStatusSchema,
 });
 export type SyncStatus = z.infer<typeof syncStatusSchema>;

@@ -41,6 +41,7 @@ export function SyncSheet({ open, onClose }: { open: boolean; onClose: () => voi
         )}
         <div className="flex justify-between gap-4"><dt className="t-secondary">Nightly backup</dt><dd>{b?.lastOk ? formatDateTime(b.lastOk) : "Not yet"}</dd></div>
       </dl>
+      {status.data && !status.data.alertsEnabled && <p className="t-secondary mt-3">Failure alerts are off. This screen is the only place failures show.</p>}
       <p className="t-secondary mt-3">Sync reads from Garmin. It never changes anything in Garmin.</p>
       {sync.isError && <p role="alert" className="mt-2 text-[13px] font-medium text-danger">{sync.error.message}</p>}
       <div className="mt-4 flex flex-wrap gap-2">

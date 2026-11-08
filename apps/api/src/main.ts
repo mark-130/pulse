@@ -6,7 +6,7 @@ import { createLogger } from "./logger.js";
 import { createMcpConnector } from "./modules/garmin/client.js";
 import { createGarminModule } from "./modules/garmin/module.js";
 import { modules, startJobs } from "./modules/registry.js";
-import { createNotifier } from "./notify.js";
+import { createNotifier, ntfyEnabled } from "./notify.js";
 
 const log = createLogger();
 
@@ -18,6 +18,7 @@ try {
   process.exit(1);
 }
 
+if (!ntfyEnabled(config)) log.info("ntfy alerts off");
 const { db, sqlite } = openDb(config.DATA_DIR, config.MIGRATIONS_DIR);
 const { module: garminModule, garmin } = createGarminModule({
   db,

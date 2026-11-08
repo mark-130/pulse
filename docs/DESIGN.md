@@ -72,6 +72,7 @@ Orb hero, briefing, prompt chips, verdict, session, race, metrics, proposals. Mo
 - Stale banner (D27): shown on every screen only when the plan or readiness data is stale (older than 90 minutes), or when the device is offline. Amber border, warning icon, then: a bold one line reason in plain words ("Garmin Connect timed out. Retrying automatically."), a line naming what is behind and what is current ("Readiness is 95 minutes old. The plan, activities and trends are current."), and "Last synced dd/mm/yyyy hh:mm.".
 - Details disclosure: the raw error is hidden behind "Details" (a 44px summary), in a monospace block with overflow-wrap: anywhere, max height 12rem with its own scroll, and a Copy button. Nothing overflows the card at 320px.
 - Sync now sits on its own full width row under the text below 640px, at least 44px tall, and reads a disabled "Syncing" while running.
+- Sync sheet, when ntfy is not configured: a plain line "Failure alerts are off. This screen is the only place failures show."
 - Partial state: when only activities or trends are behind there is no banner. The cards that use them show a quiet inline note with an info icon ("Activities are 95 minutes old. Retrying automatically."). The sync sheet lists each group with its age and marks the ones that are behind.
 - At 320px the header pill drops the word "synced" ("Stale, 07:49") so the wordmark is not truncated.
 - Loading skeletons (static, no shimmer), plain error messages with Retry.

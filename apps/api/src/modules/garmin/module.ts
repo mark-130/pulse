@@ -7,7 +7,7 @@ import type { Config } from "../../config.js";
 import type { Db } from "../../db/index.js";
 import { syncState } from "../../db/schema.js";
 import type { Logger } from "../../logger.js";
-import type { Notifier } from "../../notify.js";
+import { ntfyEnabled, type Notifier } from "../../notify.js";
 import type { GarminConnector } from "./client.js";
 import { getRaces, getToday, getTrends, getWeek } from "./queries.js";
 import { groupStatuses, oldestOk } from "./freshness.js";
@@ -36,7 +36,7 @@ function jobStatus(db: Db, job: string, now: Date, staleAfterMin: number): JobSt
 export interface GarminModuleDeps {
   db: Db;
   sqlite: Database.Database;
-  config: Pick<Config, "DATA_DIR">;
+  config: Pick<Config, "DATA_DIR" | "NTFY_TOKEN">;
   connect: GarminConnector;
   notify: Notifier;
   log: Logger;
@@ -100,6 +100,7 @@ export function createGarminModule(deps: GarminModuleDeps): { module: Module<Hon
           staleAfterMinutes: GARMIN_STALE_AFTER_MIN,
           garmin: { ...job, lastOk, ageMinutes, stale: ageMinutes === null || ageMinutes > GARMIN_STALE_AFTER_MIN },
           groups: groups ?? [],
+          alertsEnabled: ntfyEnabled(deps.config),
           backup: jobStatus(db, "backup", now, BACKUP_STALE_AFTER_MIN),
         };
         return c.json(body);
