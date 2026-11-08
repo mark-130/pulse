@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
-import type { Proposal } from "@pulse/shared";
+import { VERIFY_WINDOW_HOURS, type Proposal } from "@pulse/shared";
 import type { Db } from "../../db/index.js";
 import { proposal as proposalTable } from "../../db/schema.js";
 import type { Logger } from "../../logger.js";
@@ -71,7 +71,7 @@ export function registerConfirmRoute(app: Hono, deps: ConfirmDeps): void {
 
       try {
         const out = await executeGarminProposal(p, { writesEnabled: deps.writesEnabled, getWriter: deps.getWriter });
-        const result = { mode: out.mode, message: out.message, ...(out.mode === "live" ? { verification: { state: "waiting", matches: 0, checks: [] } } : {}) };
+        const result = { mode: out.mode, message: out.message, ...(out.mode === "live" ? { verification: { state: "waiting", matches: 0, checks: [], lastConfirmedAt: null, windowEndsAt: new Date(now.getTime() + VERIFY_WINDOW_HOURS * 3_600_000).toISOString() } } : {}) };
         db.transaction(() => {
           decide(db, id, "applied", nowIso, result);
           appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.applied", target, payload: { id, before: p.before, after: p.after }, result: out.mode === "dry_run" ? "dry run" : "live" });

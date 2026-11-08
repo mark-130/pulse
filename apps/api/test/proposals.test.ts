@@ -292,47 +292,83 @@ describe("today count", () => {
   });
 });
 
-describe("conflict probe", () => {
-  const verification = async (s: Awaited<ReturnType<typeof setup>>, id: string) => getProposal(s.t.handle.db, id)?.result?.verification;
-
-  it("is Verified after two syncs see the new date", async () => {
-    const s = await setup({ writes: true });
-    const p = await s.created(await s.move("2026-11-10"));
+describe("conflict probe (72 hour window)", () => {
+  type S = Awaited<ReturnType<typeof setup>>;
+  const verification = async (s: S, id: string) => getProposal(s.t.handle.db, id)?.result?.verification;
+  const sync = async (s: S, ms = 30 * 60_000) => {
+    s.advance(ms);
+    await s.t.post("/api/sync/garmin");
+  };
+  const checks = (s: S) => s.audit().filter((a) => a.action === "verification.checked").length;
+  const applied = async (s: S, date = "2026-11-10") => {
+    const p = await s.created(await s.move(date));
     await s.confirm(p.id);
+    return p;
+  };
+
+  it("keeps checking on every sync for 72 hours and stays in Checking, never Verified early", async () => {
+    const s = await setup({ writes: true });
+    const p = await applied(s);
+    expect(await verification(s, p.id)).toMatchObject({ state: "waiting", matches: 0, lastConfirmedAt: null });
     s.fake.overrides = { get_scheduled_workouts: s.liveWorkout("2026-11-10") };
-    s.advance(2 * 60_000);
-    await s.t.post("/api/sync/garmin");
-    expect(await verification(s, p.id)).toMatchObject({ state: "waiting", matches: 1 });
-    s.advance(2 * 60_000);
-    await s.t.post("/api/sync/garmin");
-    expect(await verification(s, p.id)).toMatchObject({ state: "verified", matches: 2 });
-    expect(s.audit().map((a) => a.action)).toEqual(expect.arrayContaining(["verification.checked", "verification.verified"]));
-    s.advance(2 * 60_000);
-    await s.t.post("/api/sync/garmin");
-    expect((await verification(s, p.id))?.checks).toHaveLength(2);
-  });
-
-  it("is Reverted when the plan app puts the original date back", async () => {
-    const s = await setup({ writes: true });
-    const p = await s.created(await s.move("2026-11-10"));
-    await s.confirm(p.id);
-    s.advance(2 * 60_000);
-    await s.t.post("/api/sync/garmin");
+    for (let i = 0; i < 8; i++) await sync(s);
     const v = await verification(s, p.id);
-    expect(v).toMatchObject({ state: "reverted" });
-    expect(v?.checks[0]?.seen).toContain("original date");
-    expect(s.audit().map((a) => a.action)).toContain("verification.reverted");
+    expect(v).toMatchObject({ state: "waiting", matches: 8 });
+    expect(v?.lastConfirmedAt).toBe(s.now().toISOString());
+    expect(v?.checks).toHaveLength(5);
+    expect(checks(s)).toBe(8);
   });
 
-  it("verifies an unschedule once the workout stays gone, and flags it if it comes back", async () => {
+  it("is Verified only when the 72 hour window closes with the date still in place", async () => {
+    const s = await setup({ writes: true });
+    const p = await applied(s);
+    s.fake.overrides = { get_scheduled_workouts: s.liveWorkout("2026-11-10") };
+    await sync(s);
+    await sync(s, 71 * 3_600_000);
+    expect((await verification(s, p.id))?.state).toBe("waiting");
+    await sync(s, 2 * 3_600_000);
+    expect(await verification(s, p.id)).toMatchObject({ state: "verified", matches: 3 });
+    expect(s.audit().map((a) => a.action)).toContain("verification.verified");
+    const before = checks(s);
+    await sync(s);
+    expect(checks(s)).toBe(before);
+  });
+
+  it("catches a late revert by the plan app after earlier syncs matched, and then stops checking", async () => {
+    const s = await setup({ writes: true });
+    const p = await applied(s);
+    s.fake.overrides = { get_scheduled_workouts: s.liveWorkout("2026-11-10") };
+    await sync(s);
+    await sync(s);
+    expect((await verification(s, p.id))?.state).toBe("waiting");
+    // The plan app's next batch puts the original date back, a day later.
+    s.fake.overrides = { get_scheduled_workouts: s.liveWorkout("2026-11-08") };
+    await sync(s, 24 * 3_600_000);
+    const v = await verification(s, p.id);
+    expect(v).toMatchObject({ state: "reverted", matches: 2 });
+    expect(v?.checks.at(-1)?.seen).toContain("original date");
+    expect(s.audit().map((a) => a.action)).toContain("verification.reverted");
+    const n = checks(s);
+    s.fake.overrides = { get_scheduled_workouts: s.liveWorkout("2026-11-10") };
+    await sync(s);
+    expect(checks(s)).toBe(n);
+    expect((await verification(s, p.id))?.state).toBe("reverted");
+  });
+
+  it("is Reverted at the first sync if the date already went back", async () => {
+    const s = await setup({ writes: true });
+    const p = await applied(s);
+    await sync(s);
+    expect(await verification(s, p.id)).toMatchObject({ state: "reverted", matches: 0 });
+  });
+
+  it("checks an unschedule the same way", async () => {
     const s = await setup({ writes: true });
     const p = await s.created(await s.remove());
     await s.confirm(p.id);
     s.fake.overrides = { get_scheduled_workouts: { scheduled_workouts: [] } };
-    s.advance(2 * 60_000);
-    await s.t.post("/api/sync/garmin");
-    s.advance(2 * 60_000);
-    await s.t.post("/api/sync/garmin");
+    await sync(s);
+    await sync(s, 73 * 3_600_000);
     expect(await verification(s, p.id)).toMatchObject({ state: "verified" });
   });
 
@@ -340,8 +376,8 @@ describe("conflict probe", () => {
     const s = await setup({ writes: false });
     const p = await s.created(await s.move("2026-11-10"));
     await s.confirm(p.id);
-    s.advance(2 * 60_000);
-    await s.t.post("/api/sync/garmin");
+    await sync(s);
     expect(await verification(s, p.id)).toBeUndefined();
+    expect(checks(s)).toBe(0);
   });
 });

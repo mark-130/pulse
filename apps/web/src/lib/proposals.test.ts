@@ -24,7 +24,8 @@ describe("proposal wording", () => {
     expect(statusLabel({ status: "stale", result: null })).toBe("Out of date");
     expect(verificationLabel({ state: "verified", matches: 2, checks: [] })).toBe("Verified");
     expect(verificationLabel({ state: "reverted", matches: 0, checks: [] })).toBe("Reverted by the plan app");
-    expect(verificationLabel({ state: "waiting", matches: 1, checks: [] })).toBe("Checking: 1 of 2 syncs confirmed");
+    expect(verificationLabel({ state: "waiting", matches: 3, checks: [], lastConfirmedAt: "2026-11-08T07:30:00Z" })).toBe("Checking, last confirmed 07:30 08/11");
+    expect(verificationLabel({ state: "waiting", matches: 0, checks: [], lastConfirmedAt: null })).toBe("Checking, not confirmed by a sync yet");
     expect(verificationLabel(undefined)).toBeNull();
   });
 });

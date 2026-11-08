@@ -25,11 +25,20 @@ export const workoutStateSchema = z.object({
 });
 export type WorkoutState = z.infer<typeof workoutStateSchema>;
 
+/** How long a live change is watched after it is applied. The plan app pushes in batches, so two syncs are not enough (D34). */
+export const VERIFY_WINDOW_HOURS = 72;
+
 export const verificationSchema = z.object({
-  /** waiting: fewer than two syncs have checked. verified: two syncs saw the expected state. reverted: the plan app (or something else) put it back. */
+  /** waiting: the window is open and every check so far matched. verified: the window closed with the expected state still in place. reverted: the date went back, checking stopped. */
   state: z.enum(["waiting", "verified", "reverted"]),
+  /** Checks that matched. */
   matches: z.number(),
+  /** The most recent checks only. Every check is in the audit log. */
   checks: z.array(z.object({ at: z.string(), seen: z.string() })),
+  /** When a sync last saw the expected state. */
+  lastConfirmedAt: z.string().nullable().optional(),
+  /** When the watching window closes. */
+  windowEndsAt: z.string().optional(),
 });
 export type Verification = z.infer<typeof verificationSchema>;
 

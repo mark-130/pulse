@@ -33,6 +33,12 @@ export function formatDateTime(iso: string): string {
   return `${d} ${formatTime(iso)}`;
 }
 
+/** "07:30 08/11" in Europe/London from an ISO instant. */
+export function formatClockDay(iso: string): string {
+  const d = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", timeZone: TZ }).format(new Date(iso));
+  return `${formatTime(iso)} ${d}`;
+}
+
 export function formatDurationMin(seconds: number | null): string {
   return seconds === null ? "unknown duration" : `${Math.round(seconds / 60)} min`;
 }

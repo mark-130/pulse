@@ -1,5 +1,5 @@
 import type { Proposal, ProposalKind, Verification } from "@pulse/shared";
-import { formatDayDate, formatDurationMin } from "./format";
+import { formatClockDay, formatDayDate, formatDurationMin } from "./format";
 
 export const kindTitle = (kind: ProposalKind): string => (kind === "garmin.reschedule" ? "Move workout" : "Remove from schedule");
 
@@ -44,5 +44,5 @@ export function verificationLabel(v: Verification | undefined): string | null {
   if (!v) return null;
   if (v.state === "verified") return "Verified";
   if (v.state === "reverted") return "Reverted by the plan app";
-  return `Checking: ${v.matches} of 2 syncs confirmed`;
+  return v.lastConfirmedAt ? `Checking, last confirmed ${formatClockDay(v.lastConfirmedAt)}` : "Checking, not confirmed by a sync yet";
 }
