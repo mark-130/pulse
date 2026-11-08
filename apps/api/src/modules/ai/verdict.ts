@@ -1,4 +1,5 @@
 import { HEALTH_NOTE, VERDICT_LABELS, type Signal, type Verdict, type VerdictState } from "@pulse/shared";
+import { DEMANDING_NAME } from "../training.js";
 import { addDays } from "../../dates.js";
 
 /**
@@ -31,7 +32,6 @@ export const THRESHOLDS = {
   demandingMinutes: 90,
 } as const;
 
-const DEMANDING_NAME = /interval|tempo|threshold|repeat|hill|speed|fartlek|race|\b\d+\s?x\s?\d/i;
 
 const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const num = (n: number) => String(Math.round(n * 10) / 10);

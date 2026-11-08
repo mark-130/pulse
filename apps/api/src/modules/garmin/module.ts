@@ -43,6 +43,8 @@ export interface GarminModuleDeps {
   now?: () => Date;
   /** Called after a sync that refreshed the scheduled workouts. Used by the proposal verification probe. */
   onWorkoutsSynced?: (now: Date) => void;
+  /** Called after every sync that fetched something. Used for post-run debriefs. Must not throw. */
+  onSynced?: (now: Date) => void;
   /** Test hook for the retry waits. */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -60,6 +62,13 @@ export function createGarminModule(deps: GarminModuleDeps): { module: Module<Hon
     run: async () => {
       const result = await runGarminSync({ db, connect: deps.connect, now: clock, sleep: deps.sleep });
       if (result.tasks.find((t) => t.name === "scheduled_workouts")?.status === "ok") deps.onWorkoutsSynced?.(clock());
+      if (result.ok) {
+        try {
+          deps.onSynced?.(clock());
+        } catch {
+          /* a follow-up must never fail a sync */
+        }
+      }
       const failed = result.tasks.filter((t) => t.status === "failed");
       // Only a run where nothing could be fetched counts as failed and backs off. Anything less is partial.
       if (!result.ok) throw new Error(`Garmin sync failed: ${failed.slice(0, 3).map((t) => `${t.name} (${t.error})`).join("; ")}`);

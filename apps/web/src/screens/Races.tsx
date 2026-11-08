@@ -1,6 +1,7 @@
 import type { Priority, RaceMetaInput, RaceView, RaceWarning } from "@pulse/shared";
 import { Flag, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { Chip, PriorityChip } from "@/components/Chip";
 import { Button, Card, EmptyState } from "@/components/ui";
 import { formatClock, formatDate, formatDayDate, formatRaceKm, formatRaceTime, formatTime, plural } from "@/lib/format";
@@ -33,7 +34,7 @@ function Segmented<T extends string>({ label, options, value, onPick, disabled }
   );
 }
 
-function Controls({ race, save, busy }: { race: RaceView; save: (r: RaceView, m: RaceMetaInput) => void; busy: boolean }) {
+export function Controls({ race, save, busy }: { race: RaceView; save: (r: RaceView, m: RaceMetaInput) => void; busy: boolean }) {
   const explicitPriority = race.priorityInferred ? null : race.priority;
   const explicitType = race.typeInferred ? null : race.type;
   return (
@@ -76,18 +77,10 @@ function RaceCard({ race, save, busy }: { race: RaceView; save: (r: RaceView, m:
         <Chip>{race.typeInferred ? `${race.type === "trail" ? "Trail" : "Road"}, suggested` : race.type === "trail" ? "Trail" : "Road"}</Chip>
         {race.distanceM !== null && <Chip>{formatRaceKm(race.distanceM)}{race.distanceInferred ? ", guessed" : ""}</Chip>}
         <Chip>{race.goalTimeSeconds !== null ? `Goal ${formatClock(race.goalTimeSeconds)}` : "No goal time"}</Chip>
-        {race.taper.start && !race.past && <Chip tone="taper">Taper from {formatDate(race.taper.start)}</Chip>}
       </div>
-      <p className="mt-3 text-[15px]">{race.taper.status}</p>
-      {race.taper.advice && (
-        <details className="mt-1">
-          <summary className="t-secondary flex min-h-11 cursor-pointer items-center">Taper advice</summary>
-          <p className="t-secondary pb-2 [overflow-wrap:anywhere]">{race.taper.advice}</p>
-        </details>
-      )}
-      {race.recovery.until && !race.past && <p className="t-secondary">Recovery after the race: easy running only until {formatDate(race.recovery.until)}.</p>}
       <Flags race={race} />
       {!race.past && <Controls race={race} save={save} busy={busy} />}
+      {!race.past && <Button asChild variant="secondary" className="mt-3 w-full sm:w-auto"><Link to={`/races/${encodeURIComponent(race.eventKey)}`}>Lead-up</Link></Button>}
     </section>
   );
 }
@@ -100,12 +93,6 @@ function Warning({ w, races, save, busy }: { w: RaceWarning; races: Map<string, 
         <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--verdict-easy)]" />
         <span>{w.message}</span>
       </p>
-      <ul className="t-secondary mt-2 space-y-1">
-        {w.taperStarts.map((t) => {
-          const r = races.get(t.raceKey);
-          return r && <li key={t.raceKey} className="[overflow-wrap:anywhere]">{r.title}: {t.date ? `taper from ${formatDate(t.date)}` : "no taper"}.</li>;
-        })}
-      </ul>
       {w.needsChoice && w.kind === "cluster" && (
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {involved.map((r) => (
@@ -166,7 +153,7 @@ export function Races() {
   return (
     <div className="space-y-3">
       <h1 className="t-greeting">Races</h1>
-      <p className="t-secondary">From your Garmin calendar. Priority and type are saved here only and never change Garmin. Taper advice is not medical guidance.</p>
+      <p className="t-secondary">From your Garmin calendar. Priority and type are saved here only and never change Garmin.</p>
       {q.isPending && <EmptyState>Loading</EmptyState>}
       {q.isError && !data && (
         <div role="alert" className="card">

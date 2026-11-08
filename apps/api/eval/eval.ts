@@ -30,6 +30,8 @@ const config = {
   ANTHROPIC_MODEL_FAST: process.env.ANTHROPIC_MODEL_FAST ?? "claude-haiku-5-5",
   AI_MONTHLY_CAP_GBP: 1,
   AI_USD_TO_GBP: Number(process.env.AI_USD_TO_GBP ?? 0.78),
+  AI_PROPOSALS: "off" as const,
+  PULSE_GARMIN_WRITES: "off" as const,
 };
 
 let failed = 0;

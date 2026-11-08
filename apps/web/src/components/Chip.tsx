@@ -5,7 +5,7 @@ const tones = {
   neutral: "bg-[var(--chip-neutral-bg)] text-[color:var(--chip-neutral-fg)]",
   priorityA: "bg-accent text-accent-foreground",
   priorityB: "bg-[var(--chip-b-bg)] text-[color:var(--chip-b-fg)]",
-  taper: "bg-[var(--chip-taper-bg)] text-[color:var(--chip-taper-fg)]",
+  soft: "bg-[var(--chip-taper-bg)] text-[color:var(--chip-taper-fg)]",
 } as const;
 
 export function Chip({ tone = "neutral", children }: { tone?: keyof typeof tones; children: ReactNode }) {
@@ -21,7 +21,7 @@ export function PriorityChip({ priority, suggested = false }: { priority: "A" | 
 /** Every AI-written block carries the sparkle icon and this chip. */
 export function AiChip() {
   return (
-    <Chip tone="taper">
+    <Chip tone="soft">
       <Sparkles aria-hidden className="size-3" />
       AI
     </Chip>

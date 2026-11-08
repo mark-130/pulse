@@ -18,7 +18,7 @@ Source of truth for the look of NGtive Split (code name pulse). Tokens live in a
 - orb: radial-gradient(circle at 32% 28%, #C9FFF5 0%, #2DD4BF 26%, #3B82F6 60%, #7C3AED 100%), outer glow rgba(94,234,212,0.34) blurred 10px, soft white highlight ellipse top left
 - briefing surface: linear-gradient(160deg, rgba(94,234,212,0.12), rgba(139,92,246,0.12)), border rgba(255,255,255,0.1)
 - proposals surface: rgba(94,234,212,0.06), border rgba(94,234,212,0.3)
-- chips: race priority B rgba(139,92,246,0.22) with text #CDB9FF; taper rgba(94,234,212,0.14) with accent text; neutral rgba(255,255,255,0.08) with text #DCEBE9
+- chips: race priority B rgba(139,92,246,0.22) with text #CDB9FF; soft rgba(94,234,212,0.14) with accent text; neutral rgba(255,255,255,0.08) with text #DCEBE9
 
 ## Light tokens
 Same layout. bg #F4F8F8, surface #FFFFFF, border rgba(10,17,19,0.08), text #0A1113, muted #4B6161, accent #0F766E, on-accent #FFFFFF. The orb is unchanged with a softer glow. Chip, briefing and proposal tints use the darker accent and violet so text keeps at least 4.5:1 contrast. Contrast is checked when tokens change.
@@ -55,18 +55,18 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - Prompt chips under the briefing: three suggested questions, wrapping to rows.
 - Verdict card (built in 4a): an outlined verdict pill with icon and text (check for Go as planned, down arrow for Go but easier, refresh arrows for Swap for recovery, bed for Rest, question mark for No verdict, coloured by the verdict tokens), Garmin's own readiness score big over 100 with its date, the gradient gauge with a marker at that score, the top 3 reasons (numbers and dates) with the rest behind "All reasons", the illness and injury note, Garmin sync time. The verdict is code, so the card carries no AI chip.
 - Session row: icon tile, overline, title, estimated duration, source, View button.
-- Race card: name, date and start time in the race's own time zone, countdown, a seven day row of circles (today outlined, taper days tinted, race day filled accent), chips for priority, goal and taper start, then a line for the following race.
+- Race card: name, date and start time in the race's own time zone, countdown, a seven day row of circles (today outlined, race day filled accent), chips for priority, distance and goal, then a line for the following race. No taper chip or status line (D42).
 - Metric tiles, two columns: label, value, 4px gradient bar, status line.
 - Proposals card: count, "Nothing is applied until you confirm.", Review button.
 
 ## Races screen (Phase 2)
 - Order: warnings (action first, then info), the Unclassified card, "Upcoming, next first", then "Recent" for races in the last 14 days.
-- Race card: name, date and start time in the race's own zone, location, countdown (or Done), chips (priority, type, distance, goal, taper start), the taper status line, a "Taper advice" disclosure (advice only, not medical guidance), the recovery line, data quality flags with a warning icon and text, and the priority (A, B, C) and type (Road, Trail) controls.
+- Race card: name, date and start time in the race's own zone, location, countdown (or Done), chips (priority, type, distance, goal), data quality flags with a warning icon and text, and the priority (A, B, C) and type (Road, Trail) controls.
 - Priority chips: A is the accent fill, B the violet chip, C the neutral chip. The letter is always in the text. Values that are only inferred say "suggested". Controls are 44px pill buttons using aria-pressed, so the state is not colour alone.
 - Unclassified card: races whose priority or type is still inferred, each with a "Use B, road" button that accepts the suggestion.
 - Undo: after every change a toast above the tab bar says what was saved, with a 44px Undo button for 12 seconds.
 - Cluster warning with an undecided A race: a full width button per race, "Make X the A race".
-- The Today race card shows the priority, distance, goal and taper chips, the taper status line, tinted taper days in the seven day row, and an "All races" link.
+- The Today race card shows the priority, distance and goal chips, a note when the start time is unverified, the seven day row (today and race day only), and an "All races" link.
 
 ## Proposals and the confirm dialog (Phase 3)
 - Proposals screen: "Waiting for you (n)" then History. Each row has the kind, a Garmin chip, a status chip, a one line summary (dates, or removal in red), the expiry or decision time, and a Review or Details button. A line at the top says whether Garmin writes are on or off.
@@ -84,8 +84,17 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - After Confirm the dialog closes and the card shows "Updating. Reconnecting..." while it polls /api/health/version every 3 seconds. Then "Updated to cc3b793" with a Reload button, or after 3 minutes "The update did not complete or no newer image was found. The app is still running the previous build." with Details and Dismiss.
 - Proposals history: chip "This app", status "Waiting for the restart", "Updated to cc3b793" or "Not completed, still on the previous build".
 
+## Race lead-up, weekly review and debrief (Phase 4b)
+- Race detail screen (Races, then "Lead-up" on a race card; route /races/:key): a Back button, the race header with chips and the priority and type controls, then "Lead-up": the days to go, and one block per week (up to 4, no table, so it fits 320px). Each block: "Week of dd/mm" and "Race week" or "n weeks before", then plain counts: "3 workouts scheduled, 200 min in total.", "Longest: name, minutes, day.", "3 rest days.", "1 of 2 scheduled so far completed." and, where Garmin stops, "Garmin shows this week only up to dd/mm.", with a "Scheduled sessions (n)" disclosure. No colour coding of good or bad, no bars, no targets. A race with no weeks in Garmin yet says "The weeks before this race are not in Garmin yet." Below it a "Flags" card with warning icons plus words: Priority not set, start time unverified, no goal time, another race within 21 days, a workout on race day, and the clash warnings. No AI chip, because there is no AI on this screen.
+- Weekly review (Week, under the totals, for weeks that have started): sparkle, "Weekly review", AI chip, "Generated hh:mm dd/mm", the text (This week, Readings, Next week), "Covers the week up to dd/mm." for a week in progress, and Refresh. No review yet: "Write review". AI off: "AI is off. Set ANTHROPIC_API_KEY to switch the weekly review on." Cap: "AI cap reached for this month. The weekly review returns next month." with no button.
+- Debrief (under each recorded run on Week and Today): a quiet inner panel with sparkle, "Debrief", AI chip, "Generated" time, two or three neutral sentences and Refresh, or "Write debrief". Nothing shows when AI is off. At the cap: "AI cap reached for this month." and no button.
+- Cap text everywhere: "AI cap reached for this month".
+- Settings, AI usage footer: "Prices checked dd/mm/yyyy. Rate 0.78." and a line "AI proposals are on/off.", on only when both AI_PROPOSALS and PULSE_GARMIN_WRITES are on.
+- A proposal made by the AI shows a "Proposed by AI" chip and the line "Proposed by AI in Ask", with the reason it gave. In Ask a message that used a propose tool adds "A proposal is waiting. Nothing has changed until you confirm it." and a Review proposals link.
+- Ask suggestion chips are factual questions ("How did I sleep?", "What is my next race?", "What do my readings say today?"). The Ask replies to a training advice question with Garmin facts and a pointer to the coach.
+
 ## AI surfaces (Phase 4a)
-- Briefing bubble: sparkle, "Morning briefing", AI chip, "Generated HH:mm", the text, and a line saying which data groups were out of date when it was written. States in plain text: "Writing your briefing." while the call runs, "AI is off. Set ANTHROPIC_API_KEY to switch the briefing on.", "Monthly AI budget reached. The briefing returns next month.", "The briefing could not be written. It will try again later."
+- Briefing bubble: sparkle, "Morning briefing", AI chip, "Generated HH:mm", the text, and a line saying which data groups were out of date when it was written. States in plain text: "Writing your briefing." while the call runs, "AI is off. Set ANTHROPIC_API_KEY to switch the briefing on.", "AI cap reached for this month. The briefing returns next month.", "The briefing could not be written. It will try again later."
 - Orb thinking state: while a call runs the orb gets a still accent ring (always shown, also with prefers-reduced-motion) and, when motion is allowed, a faster glow. The Today hero orb thinks while the briefing is written, and the Ask orb while a question is answered.
 - Ask (the raised orb tab): a header with the orb, the conversation (your questions right, answers left), a box and Send and New chat buttons, all 44px. Answers carry the sparkle and AI chip and a "Looked at: ..." line naming the tools used. Fixed replies written in code (illness and injury advice) carry "From the app, not AI" instead. Off and budget states are plain text and the box is disabled. A notice shows from 80 percent of the monthly cap.
 - Prompt chips on Today open Ask with the question in the box. Nothing is sent until you tap Send.

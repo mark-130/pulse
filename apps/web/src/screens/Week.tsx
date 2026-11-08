@@ -8,7 +8,9 @@ import { Chip } from "@/components/Chip";
 import { KindNote } from "@/components/KindNote";
 import { Button } from "@/components/ui";
 import { formatDate, formatDayDate, formatDurationMin, formatKm, formatTime, plural } from "@/lib/format";
-import { useCreateProposal, useWeek } from "@/lib/queries";
+import { ReviewView } from "@/components/AiBlocks";
+import { useDebriefBlocks } from "@/components/Debriefs";
+import { useCreateProposal, useReview, useWeek, useWriteReview } from "@/lib/queries";
 
 function shift(date: string, days: number): string {
   const d = new Date(`${date}T12:00:00Z`);
@@ -57,7 +59,7 @@ function MoveDialog({ workout, onClose, onCreated }: { workout: WorkoutItem | nu
   );
 }
 
-function Day({ day, today, onMove, onRemove, busy }: { day: WeekResponse["days"][number]; today: string; onMove: (w: WorkoutItem) => void; onRemove: (w: WorkoutItem) => void; busy: boolean }) {
+function Day({ day, today, onMove, onRemove, busy, debrief }: { day: WeekResponse["days"][number]; today: string; onMove: (w: WorkoutItem) => void; onRemove: (w: WorkoutItem) => void; busy: boolean; debrief: (id: string) => React.ReactNode }) {
   const empty = day.workouts.length === 0 && day.activities.length === 0;
   return (
     <section className={`card ${day.date === today ? "!border-accent" : ""}`} aria-label={formatDayDate(day.date)}>
@@ -82,7 +84,7 @@ function Day({ day, today, onMove, onRemove, busy }: { day: WeekResponse["days"]
           </li>
         ))}
         {day.activities.map((a) => (
-          <li key={a.id} className="flex items-center gap-3">
+          <li key={a.id} className="flex flex-wrap items-center gap-3">
             <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-surface-2 text-accent"><SportIcon sport={a.type} /></span>
             <div className="min-w-0 flex-1">
               <p className="t-overline">Recorded, {a.startLocal.slice(11, 16)}</p>
@@ -91,6 +93,7 @@ function Day({ day, today, onMove, onRemove, busy }: { day: WeekResponse["days"]
                 {[a.distanceM !== null && formatKm(a.distanceM, 2), formatDurationMin(a.durationS), a.avgHr !== null && `average ${a.avgHr} bpm`].filter(Boolean).join(", ")}
               </p>
             </div>
+            {debrief(a.id) && <div className="basis-full">{debrief(a.id)}</div>}
           </li>
         ))}
       </ul>
@@ -103,6 +106,10 @@ export function Week() {
   const start = params.get("start");
   const q = useWeek(start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : null);
   const w = q.data;
+  const weekParam = start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : null;
+  const review = useReview(weekParam);
+  const writeReview = useWriteReview(weekParam);
+  const debrief = useDebriefBlocks(w?.days.flatMap((d) => d.activities) ?? []);
   const go = (date: string | null) => setParams(date ? { start: date } : {});
   const [moving, setMoving] = useState<WorkoutItem | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -144,8 +151,19 @@ export function Week() {
             <p className="t-label mt-2">{w.syncedAt ? `Garmin synced ${formatTime(w.syncedAt)}` : "Not synced yet"}</p>
             <KindNote group="activities" />
           </section>
+          {review.data?.canWrite && (
+            <ReviewView
+              review={review.data.review}
+              weekEnd={w.end}
+              state={review.data.state}
+              pending={writeReview.isPending}
+              failed={review.data.failed || writeReview.isError || (writeReview.data?.failed ?? false)}
+              onWrite={() => writeReview.mutate(false)}
+              onRefresh={() => writeReview.mutate(true)}
+            />
+          )}
           <div className="grid gap-3 md:grid-cols-2">
-            {w.days.map((d) => <Day key={d.date} day={d} today={w.today} busy={remove.isPending} onMove={setMoving} onRemove={askRemove} />)}
+            {w.days.map((d) => <Day key={d.date} day={d} today={w.today} busy={remove.isPending} onMove={setMoving} onRemove={askRemove} debrief={debrief} />)}
           </div>
         </>
       )}

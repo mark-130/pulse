@@ -1,21 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { changeText, priorityLabel, sevenDayRow } from "./races";
 
-const taper = (start: string | null) => ({ days: 4, start, status: "", advice: null });
-
 describe("seven day row", () => {
-  it("outlines today, tints taper days and fills race day", () => {
-    expect(sevenDayRow("2026-11-08", { date: "2026-11-14", taper: taper("2026-11-10") })).toEqual(["today", "plain", "taper", "taper", "taper", "taper", "race"]);
+  it("outlines today and fills race day, with no tint for any lead-up days", () => {
+    expect(sevenDayRow("2026-11-08", { date: "2026-11-14" })).toEqual(["today", "plain", "plain", "plain", "plain", "plain", "race"]);
   });
-  it("keeps today outlined when it is already in the taper", () => {
-    expect(sevenDayRow("2026-11-12", { date: "2026-11-14", taper: taper("2026-11-10") })).toEqual(["today", "taper", "race", "plain", "plain", "plain", "plain"]);
+  it("keeps today outlined on race day's week and shows race day when it is in view", () => {
+    expect(sevenDayRow("2026-11-12", { date: "2026-11-14" })).toEqual(["today", "plain", "race", "plain", "plain", "plain", "plain"]);
   });
-  it("shows no taper tint for a C race or when there is no race", () => {
-    expect(sevenDayRow("2026-11-08", { date: "2026-11-10", taper: taper(null) })).toEqual(["today", "plain", "race", "plain", "plain", "plain", "plain"]);
+  it("shows no race when there is none", () => {
     expect(sevenDayRow("2026-11-08", null)).toEqual(["today", "plain", "plain", "plain", "plain", "plain", "plain"]);
   });
   it("marks race day beyond a week as absent", () => {
-    expect(sevenDayRow("2026-11-08", { date: "2026-12-20", taper: taper("2026-12-10") })).not.toContain("race");
+    expect(sevenDayRow("2026-11-08", { date: "2026-12-20" })).not.toContain("race");
   });
 });
 

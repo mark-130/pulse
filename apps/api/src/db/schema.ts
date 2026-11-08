@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const json = <T = unknown>(name: string) => text(name, { mode: "json" }).$type<T>();
 
@@ -156,6 +156,21 @@ export const aiUsage = sqliteTable("ai_usage", {
   cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
   costGbp: real("cost_gbp").notNull(),
 });
+
+/** Generated AI text, cached so it is never rewritten unless Mark taps Refresh. kind: weekly_review (key week start) or debrief (key activity id). */
+export const aiText = sqliteTable(
+  "ai_text",
+  {
+    kind: text("kind").notNull(),
+    key: text("key").notNull(),
+    text: text("text").notNull(),
+    data: json("data"),
+    model: text("model").notNull(),
+    tokens: integer("tokens").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.key] })],
+);
 
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),

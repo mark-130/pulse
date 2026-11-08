@@ -17,6 +17,8 @@ const envSchema = z.object({
   /** Off by default. While off the confirm flow runs and is audited but nothing is sent to Garmin (D32). */
   PULSE_GARMIN_WRITES: z.enum(["on", "off"]).default("off"),
   /** Empty means AI is off. Server side only: never sent to the browser, logged, or put in a prompt. */
+  /** Off by default. While off, Ask has no propose tools and no AI proposal is created. PULSE_GARMIN_WRITES is separate and also off by default. */
+  AI_PROPOSALS: z.enum(["on", "off"]).default("off"),
   ANTHROPIC_API_KEY: z.string().default(""),
   ANTHROPIC_MODEL_SMART: z.string().min(1).default("claude-sonnet-5-5"),
   ANTHROPIC_MODEL_FAST: z.string().min(1).default("claude-haiku-5-5"),

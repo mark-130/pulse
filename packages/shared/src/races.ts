@@ -39,18 +39,18 @@ export const raceViewSchema = z.object({
   /** True once both priority and type are set by Mark. */
   classified: z.boolean(),
   raceClass: raceClassSchema.nullable(),
+  /**
+   * Reference window from the docs/TRAINING.md defaults (D30). It only feeds the clash flags. It is never shown as, or
+   * used to produce, a recommendation: training content belongs to Mark's coach (D42).
+   */
   taper: z.object({
     days: z.number(),
     /** ISO date, null for C races and races with no known distance. */
     start: z.string().nullable(),
-    /** One plain line on where the taper stands today. */
-    status: z.string(),
-    /** Advice only, not medical guidance. Null for C races. */
-    advice: z.string().nullable(),
   }),
+  /** Reference window for the clash flags only, see above. */
   recovery: z.object({
     days: z.number(),
-    /** Last day of easy running only, null when there is no recovery window. */
     until: z.string().nullable(),
   }),
   flags: z.array(raceFlagSchema),
@@ -66,8 +66,6 @@ export const raceWarningSchema = z.object({
   message: z.string(),
   /** True while more than one A race, or an unset priority, leaves the cluster undecided. */
   needsChoice: z.boolean(),
-  /** Suggested taper start for each race involved, as if it were at least B. */
-  taperStarts: z.array(z.object({ raceKey: z.string(), date: z.string().nullable() })),
 });
 export type RaceWarning = z.infer<typeof raceWarningSchema>;
 
@@ -92,3 +90,51 @@ export const raceMetaResponseSchema = z.object({
   current: raceMetaInputSchema,
 });
 export type RaceMetaResponse = z.infer<typeof raceMetaResponseSchema>;
+
+/**
+ * Race lead-up (D42, D43). What Garmin holds for the weeks before a race: facts only, read from the cache.
+ * It never suggests, designs or critiques training, and it works with AI off.
+ */
+export const leadUpWeekSchema = z.object({
+  weekStart: z.string(),
+  weekEnd: z.string(),
+  /** 0 is the race week, 1 the week before it, and so on. */
+  weeksBefore: z.number(),
+  /** Set when the week runs past what the app sees in Garmin (about 14 days ahead): the last day that is shown. */
+  shownUntil: z.string().nullable(),
+  scheduledCount: z.number(),
+  scheduledMinutes: z.number(),
+  /** The longest scheduled session in the week, or null if none. */
+  longest: z.object({ date: z.string(), name: z.string(), minutes: z.number().nullable() }).nullable(),
+  /** Days with nothing scheduled and nothing recorded, among the days Garmin shows. */
+  restDays: z.number(),
+  /** Scheduled sessions dated up to today, and how many of those Garmin marks completed. Null for a week that has not started. */
+  scheduledSoFar: z.number().nullable(),
+  completedSoFar: z.number().nullable(),
+  sessions: z.array(z.object({ date: z.string(), name: z.string(), minutes: z.number().nullable(), completed: z.boolean() })),
+});
+export type LeadUpWeek = z.infer<typeof leadUpWeekSchema>;
+
+export const leadUpSchema = z.object({
+  raceKey: z.string(),
+  title: z.string(),
+  date: z.string(),
+  past: z.boolean(),
+  daysToGo: z.number(),
+  priority: prioritySchema,
+  prioritySet: z.boolean(),
+  /** Up to 4 weeks ending with the race week, oldest first. Empty for a past race. */
+  weeks: z.array(leadUpWeekSchema),
+  /** Sessions scheduled in Garmin on race day itself. */
+  raceDayWorkouts: z.array(z.object({ name: z.string(), minutes: z.number().nullable() })),
+  /** Other races within the cluster window of this one (D30). */
+  nearbyRaces: z.array(z.object({ title: z.string(), date: z.string(), daysApart: z.number() })),
+  /** Factual flags: priority not set, start time unverified, a workout on race day, a race nearby, data quality. */
+  flags: z.array(z.object({ kind: z.string(), text: z.string() })),
+  /** The clash warnings from the cluster, recovery, taper and long run rules that involve this race. */
+  clashes: z.array(z.object({ id: z.string(), kind: z.string(), severity: z.enum(["action", "info"]), message: z.string() })),
+});
+export type LeadUp = z.infer<typeof leadUpSchema>;
+
+export const leadUpResponseSchema = z.object({ leadUp: leadUpSchema, syncedAt: z.string().nullable() });
+export type LeadUpResponse = z.infer<typeof leadUpResponseSchema>;

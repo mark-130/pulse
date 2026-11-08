@@ -67,22 +67,21 @@ describe("taper and recovery defaults", () => {
     expect([recoveryDays("10k", "B", "road"), recoveryDays("half", "B", "road"), recoveryDays("marathon", "A", "road")]).toEqual([3, 6, 12]);
     expect([recoveryDays("half", "B", "trail"), recoveryDays("10k", "B", "trail"), recoveryDays("half", "C", "road")]).toEqual([8, 4, 0]);
   });
-  it("gives a taper start date, a status line and a recovery window", () => {
+  it("keeps a reference window and a recovery window for the clash flags only, and no status line or advice", () => {
     const r = buildRace(rhino, { priority: "A", type: "road", goalOverrideS: null }, TODAY);
     expect(r.taper).toMatchObject({ days: 7, start: "2026-11-07" });
-    expect(r.taper.status).toBe("In the taper, day 1 of 7.");
-    expect(r.taper.advice).toContain("Advice only, not medical guidance");
+    expect(Object.keys(r.taper).sort()).toEqual(["days", "start"]); // no advice, no status line (D42)
     expect(r.recovery).toEqual({ days: 3, until: "2026-11-17" });
     const b = buildRace(rhino, { priority: "B", type: "road", goalOverrideS: null }, TODAY);
-    expect(b.taper).toMatchObject({ days: 4, start: "2026-11-10", status: "Taper starts 10/11, in 3 days." });
+    expect(b.taper).toEqual({ days: 4, start: "2026-11-10" });
     const c = buildRace(rhino, { priority: "C", type: "road", goalOverrideS: null }, TODAY);
-    expect(c.taper).toMatchObject({ days: 0, start: null, advice: null, status: "No taper. Treat it as a workout." });
+    expect(c.taper).toEqual({ days: 0, start: null });
     expect(c.recovery.until).toBeNull();
   });
-  it("describes recovery after a race", () => {
+  it("marks a past race as past and keeps its reference recovery window for the clash flags", () => {
     const after = buildRace(race({ title: "Done 10K", date: "2026-11-05" }), undefined, TODAY);
     expect(after).toMatchObject({ past: true, daysUntil: -2 });
-    expect(after.taper.status).toBe("Done. Easy running only until 08/11.");
+    expect(after.recovery.until).toBe("2026-11-08");
   });
 });
 
@@ -108,12 +107,12 @@ describe("data quality flags", () => {
 describe("cluster and clash warnings (TRAINING.md fixtures)", () => {
   const warn = (rows: RaceInput[], metas = none, workouts = [longRun]) => buildRaces(rows, metas, workouts, TODAY).warnings;
 
-  it("flags a 10K six days after the 08/11 long run, with a taper start", () => {
+  it("flags a 10K six days after the 08/11 long run, as a fact", () => {
     const w = warn([rhino]);
     expect(w).toHaveLength(1);
     expect(w[0]).toMatchObject({ kind: "long_run", severity: "info", raceKeys: [rhino.eventKey] });
-    expect(w[0]?.taperStarts).toEqual([{ raceKey: rhino.eventKey, date: "2026-11-10" }]);
     expect(w[0]?.message).toContain("6 days before");
+    expect(w[0]?.message).not.toMatch(/shorten|consider|suggest/i);
   });
   it("leaves a C race alone and ignores a short session or an older one", () => {
     expect(warn([rhino], new Map([set(rhino, "C")]))).toEqual([]);
@@ -125,16 +124,12 @@ describe("cluster and clash warnings (TRAINING.md fixtures)", () => {
     expect(w).toHaveLength(1);
     expect(w[0]).toMatchObject({ kind: "cluster", severity: "action", needsChoice: true });
     expect(w[0]?.raceKeys).toEqual([pierrepont.eventKey, brighton.eventKey]);
-    expect(w[0]?.taperStarts).toEqual([
-      { raceKey: pierrepont.eventKey, date: "2027-03-08" },
-      { raceKey: brighton.eventKey, date: "2027-03-25" },
-    ]);
+    expect(w[0]?.message).not.toMatch(/controlled effort|takes precedence|taper/i);
   });
   it("flags a half and a marathon 14 days apart", () => {
     const w = warn([scottish, sydney], none, []);
     expect(w).toHaveLength(1);
     expect(w[0]).toMatchObject({ kind: "cluster", needsChoice: true });
-    expect(w[0]?.taperStarts.map((t) => t.date)).toEqual(["2027-08-09", "2027-08-19"]);
   });
   it("is settled, and quieter, once exactly one A is set by Mark", () => {
     const metas = new Map([set(scottish, "C"), set(sydney, "A")]);
@@ -155,13 +150,13 @@ describe("cluster and clash warnings (TRAINING.md fixtures)", () => {
     const w = warn([half, ten], new Map([set(half, "B"), set(ten, "B")]), []);
     const rec = w.find((x) => x.kind === "recovery_clash");
     expect(rec?.message).toContain("3 days after Early Half");
-    expect(rec?.message).toContain("until 13/02");
+    expect(rec?.message).toContain("runs to 13/02");
   });
   it("flags a race inside the taper of a later race", () => {
     const ten = race({ title: "Tune Up 10K", date: "2027-04-28" });
     const goal = race({ title: "Goal Marathon", date: "2027-05-02", distanceM: 42_195 });
     const w2 = warn([ten, goal], new Map([set(ten, "B"), set(goal, "A")]), []);
-    expect(w2.find((x) => x.kind === "taper_clash")?.message).toContain("falls inside the taper for Goal Marathon");
+    expect(w2.find((x) => x.kind === "taper_clash")?.message).toContain("falls inside the reference taper window before Goal Marathon");
   });
   it("ignores races that are already over for clusters", () => {
     const past = race({ title: "Old Half", date: "2026-10-30", distanceM: 21_100 });

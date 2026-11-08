@@ -8,6 +8,7 @@ import { Login } from "@/screens/Login";
 import { Placeholder } from "@/screens/Placeholder";
 import { Proposals } from "@/screens/Proposals";
 import { Races } from "@/screens/Races";
+import { RaceLeadUp } from "@/screens/RaceLeadUp";
 import { Settings } from "@/screens/Settings";
 import { Today } from "@/screens/Today";
 import { TrendsScreen } from "@/screens/Trends";
@@ -32,6 +33,7 @@ export function App() {
           <Route index element={<Today />} />
           <Route path="week" element={<Week />} />
           <Route path="races" element={<Races />} />
+          <Route path="races/:key" element={<RaceLeadUp />} />
           <Route path="trends" element={<TrendsScreen />} />
           <Route path="ask" element={<Ask />} />
           <Route path="proposals" element={<Proposals />} />

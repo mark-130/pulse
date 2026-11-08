@@ -3,11 +3,12 @@ import { MAX_TOOL_CALLS, type ChatMessage, type ChatThread } from "@pulse/shared
 import { londonDate } from "../../dates.js";
 import { chatMessage } from "../../db/schema.js";
 import type { LlmBlock, LlmMessage, LlmUserBlock } from "./llm.js";
-import { SYSTEM_PROMPT } from "./prompts.js";
+import { isProposalTool, PROPOSAL_TOOLS, proposalsOn, runProposalTool, systemFor } from "./proposal-tools.js";
 import { callModel, type AiRuntime } from "./runtime.js";
 import { ASK_TOOLS, runTool } from "./tools.js";
 import { HEALTH_ADVICE, mentionsHealthConcern } from "./verdict.js";
 import { aiGate } from "./usage.js";
+import { COACH_NOTE, mentionsTrainingAdvice } from "./coaching.js";
 
 const HISTORY_MESSAGES = 20;
 const MAX_TOKENS = 1024;
@@ -62,13 +63,17 @@ export async function ask(rt: AiRuntime, threadId: string, userText: string): Pr
   if (!gate.ok) throw Object.assign(new Error(gate.message), { aiReason: gate.reason });
 
   const today = londonDate(rt.now());
-  const messages: LlmMessage[] = [...history(rt, threadId), { role: "user", content: `[Today is ${today}, Europe/London.]\n${userText}` }];
+  const messages: LlmMessage[] = [...history(rt, threadId), { role: "user", content: `[Today is ${today}, Europe/London.]\n${mentionsTrainingAdvice(userText) ? `${COACH_NOTE}\n` : ""}${userText}` }];
   const model = rt.config.ANTHROPIC_MODEL_SMART;
+  // The propose tools exist only while AI_PROPOSALS is on. With it off the model is not even told about them.
+  const withProposals = proposalsOn(rt.config);
+  const system = systemFor(rt.config);
+  const tools = withProposals ? [...ASK_TOOLS, ...PROPOSAL_TOOLS] : ASK_TOOLS;
   let finalText: string;
 
   for (;;) {
     const toolsAllowed = outcome.toolCalls.length < MAX_TOOL_CALLS;
-    const res = await callModel(rt, "ask", { model, system: SYSTEM_PROMPT, messages, maxTokens: MAX_TOKENS, ...(toolsAllowed ? { tools: ASK_TOOLS } : {}) });
+    const res = await callModel(rt, "ask", { model, system, messages, maxTokens: MAX_TOKENS, ...(toolsAllowed ? { tools } : {}) });
     outcome.modelCalls++;
     const uses = res.content.filter((b): b is Extract<LlmBlock, { type: "tool_use" }> => b.type === "tool_use");
     if (uses.length === 0 || !toolsAllowed) {
@@ -79,7 +84,7 @@ export async function ask(rt: AiRuntime, threadId: string, userText: string): Pr
     const results: LlmUserBlock[] = uses.map((u) => {
       if (outcome.toolCalls.length >= MAX_TOOL_CALLS) return { type: "tool_result", tool_use_id: u.id, content: "Tool limit reached. This call was not run." };
       outcome.toolCalls.push(u.name);
-      return { type: "tool_result", tool_use_id: u.id, content: runTool(u.name, u.input, { db: rt.db, now: rt.now() }) };
+      return { type: "tool_result", tool_use_id: u.id, content: isProposalTool(u.name) ? runProposalTool(u.name, u.input, { db: rt.db, now: rt.now(), config: rt.config }) : runTool(u.name, u.input, { db: rt.db, now: rt.now() }) };
     });
     if (outcome.toolCalls.length >= MAX_TOOL_CALLS) results.push({ type: "text", text: LIMIT_NOTE });
     messages.push({ role: "user", content: results });

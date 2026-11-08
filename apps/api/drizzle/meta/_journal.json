@@ -43,6 +43,13 @@
       "when": 1794157376181,
       "tag": "0005_ai_usage_cache_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794165708498,
+      "tag": "0006_ai_text_cache",
+      "breakpoints": true
     }
   ]
 }

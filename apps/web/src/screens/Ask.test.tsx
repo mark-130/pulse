@@ -11,7 +11,7 @@ const status = (state: AiStatus["state"], message: string | null): AiStatus => (
   message,
   notice: null,
   month: { label: "11/2026", spentGbp: 0, capGbp: 5, percent: 0, calls: 0, byFeature: [] },
-  pricing: { checkedOn: "2026-11-08", usdToGbp: 0.78, models: [] },
+  proposals: false, pricing: { checkedOn: "2026-11-08", usdToGbp: 0.78, models: [] },
 });
 const thread = (state: ChatThread["state"], message: string | null, messages: ChatThread["messages"] = []): ChatThread => ({ thread: "main", state, message, messages });
 
@@ -35,9 +35,9 @@ describe("Ask", () => {
     expect(html).toMatch(/<textarea[^>]*disabled/);
     expect(html).not.toContain("Suggested questions");
   });
-  it("says Monthly AI budget reached", () => {
-    const html = render(thread("budget", "Monthly AI budget reached"), status("budget", "Monthly AI budget reached"));
-    expect(html).toContain("Monthly AI budget reached");
+  it("says AI cap reached for this month", () => {
+    const html = render(thread("budget", "AI cap reached for this month"), status("budget", "AI cap reached for this month"));
+    expect(html).toContain("AI cap reached for this month");
     expect(html).toMatch(/<textarea[^>]*disabled/);
   });
   it("marks AI replies with the sparkle chip and fixed replies as not AI", () => {

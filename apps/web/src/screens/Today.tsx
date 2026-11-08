@@ -8,13 +8,14 @@ import { AI_BUDGET_TEXT, AI_OFF_TEXT, type RaceItem, type TodayResponse, type Ve
 import { AiChip, Chip, PriorityChip } from "@/components/Chip";
 import { Orb } from "@/components/Orb";
 import { Button } from "@/components/ui";
+import { useDebriefBlocks } from "@/components/Debriefs";
 import { formatClock, formatDate, formatDayDate, formatDurationMin, formatKm, formatRaceKm, formatRaceTime, formatTime, humanise, plural } from "@/lib/format";
 import { useBriefingFlow } from "@/lib/briefing";
 import { useToday } from "@/lib/queries";
 import { dateLine, greetingFor } from "@/lib/today";
 import { widgets } from "@/modules/registry";
 
-const prompts = ["How did I sleep?", "What is my next race?", "Should I run today?"];
+const prompts = ["How did I sleep?", "What is my next race?", "What do my readings say today?"];
 
 function Gauge({ value }: { value: number | null }) {
   return (
@@ -114,6 +115,7 @@ function Session({ data }: { data: TodayResponse }) {
   const { today, next, activitiesToday } = data.session;
   const first = today[0];
   const done = activitiesToday[0];
+  const debrief = useDebriefBlocks(activitiesToday);
   return (
     <section className="card md:col-span-3" aria-labelledby="session-title">
       <div className="flex items-center gap-3">
@@ -130,6 +132,7 @@ function Session({ data }: { data: TodayResponse }) {
           Done today: {done.name}, {formatKm(done.distanceM, 2)} in {formatDurationMin(done.durationS)}.
         </p>
       )}
+      {activitiesToday.filter((a) => a.type === "running").map((a) => <div key={a.id}>{debrief(a.id)}</div>)}
       {!first && next && <p className="mt-3 text-[15px]">Next: {next.name}, {formatDayDate(next.date)}, {formatDurationMin(next.durationS)}.</p>}
       <Synced at={data.syncedAt} />
       <KindNote group="activities" />
@@ -142,7 +145,6 @@ function SevenDays({ today, race }: { today: string; race: RaceItem | null }) {
   const style: Record<DayKind, string> = {
     race: "border-accent bg-accent",
     today: "border-accent",
-    taper: "border-transparent bg-[var(--chip-taper-bg)]",
     plain: "border-border-strong",
   };
   return (
@@ -172,10 +174,8 @@ function Race({ data }: { data: TodayResponse }) {
             <PriorityChip priority={r.priority} suggested={r.priorityInferred} />
             {r.distanceM !== null && <Chip>{formatRaceKm(r.distanceM)}</Chip>}
             <Chip>{r.goalTimeSeconds !== null ? `Goal ${formatClock(r.goalTimeSeconds)}` : "No goal time"}</Chip>
-            {r.taper.start ? <Chip tone="taper">{r.taper.start > data.date ? `Taper from ${formatDate(r.taper.start)}` : "In the taper"}</Chip> : <Chip>No taper</Chip>}
             {!r.isRace && <Chip>Not flagged as a race</Chip>}
           </div>
-          <p className="t-secondary mt-2">{r.taper.status}</p>
           {r.flags.some((f) => f.kind === "unverified_time") && <p className="t-secondary mt-1 flex items-start gap-1"><TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-[color:var(--verdict-easy)]" />Start time unverified.</p>}
         </>
       ) : (

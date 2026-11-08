@@ -7,7 +7,7 @@ import { Orb } from "@/components/Orb";
 import { Button } from "@/components/ui";
 import { useAiStatus, useChat, useSendChat } from "@/lib/queries";
 
-const SUGGESTIONS = ["How did I sleep?", "What is my next race?", "Should I run today?"];
+const SUGGESTIONS = ["How did I sleep?", "What is my next race?", "What do my readings say today?"];
 const THREAD_KEY = "ask-thread";
 
 function readThread(): string {
@@ -34,6 +34,7 @@ function Message({ m }: { m: ChatMessage }) {
       </p>
       <p className="whitespace-pre-line leading-[1.6] [overflow-wrap:anywhere]">{m.content}</p>
       {m.tools.length > 0 && <p className="t-label mt-2 [overflow-wrap:anywhere]">Looked at: {[...new Set(m.tools)].join(", ")}</p>}
+      {m.tools.some((t) => t.startsWith("propose_")) && <p className="mt-2 text-[15px]">A proposal is waiting. Nothing has changed until you confirm it. <Link to="/proposals" className="inline-flex min-h-11 items-center font-semibold text-accent underline">Review proposals</Link></p>}
     </li>
   );
 }

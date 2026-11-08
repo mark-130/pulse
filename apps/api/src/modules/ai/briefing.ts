@@ -1,11 +1,12 @@
 import { eq } from "drizzle-orm";
-import { GARMIN_GROUPS, VERDICT_LABELS, type Briefing } from "@pulse/shared";
+import { GARMIN_GROUPS, type Briefing } from "@pulse/shared";
 import { londonDate } from "../../dates.js";
 import { briefing as briefingTable } from "../../db/schema.js";
 import { getToday } from "../garmin/queries.js";
 import { groupStatuses } from "../garmin/freshness.js";
 import { getRaceView } from "../races/data.js";
-import { BRIEFING_TASK, SYSTEM_PROMPT } from "./prompts.js";
+import { BRIEFING_TASK } from "./prompts.js";
+import { systemFor } from "./proposal-tools.js";
 import { callModel, type AiRuntime } from "./runtime.js";
 import { wrapData } from "./tools.js";
 
@@ -27,12 +28,12 @@ export function briefingContext(rt: AiRuntime) {
   const groups = groupStatuses(rt.db, now, STALE_AFTER_MIN) ?? [];
   const staleGroups = groups.filter((g) => g.stale).map((g) => g.label);
   const race = (r: typeof t.nextRace) =>
-    r && { title: r.title, date: r.date, daysUntil: r.daysUntil, start: r.startTimeLocal, timeZone: r.timeZone, distanceKm: r.distanceM === null ? null : Math.round(r.distanceM) / 1000, goalTimeSeconds: r.goalTimeSeconds, priority: r.priority, prioritySetByMark: !r.priorityInferred, taperStatus: r.taper.status, recoveryUntil: r.recovery.until, flags: r.flags.map((f) => f.text) };
+    r && { title: r.title, date: r.date, daysUntil: r.daysUntil, start: r.startTimeLocal, timeZone: r.timeZone, distanceKm: r.distanceM === null ? null : Math.round(r.distanceM) / 1000, goalTimeSeconds: r.goalTimeSeconds, priority: r.priorityInferred ? "Priority not set" : r.priority, prioritySetByMark: !r.priorityInferred, flags: r.flags.map((f) => f.text) };
   return {
     context: {
       today: t.date,
       staleGroups,
-      verdict: { label: t.verdict.label, reasons: t.verdict.reasons, healthNote: t.verdict.healthNote },
+      readings: t.verdict.signals.map((x) => x.text),
       garminReadiness: t.readiness,
       todaySessions: t.session.today.map((w) => ({ name: w.name, durationMin: w.durationS === null ? null : Math.round(w.durationS / 60), completed: w.completed })),
       nextSession: t.session.next && { name: t.session.next.name, date: t.session.next.date, durationMin: t.session.next.durationS === null ? null : Math.round(t.session.next.durationS / 60) },
@@ -55,9 +56,9 @@ export async function generateBriefing(rt: AiRuntime): Promise<Briefing> {
   const model = rt.config.ANTHROPIC_MODEL_FAST;
   const res = await callModel(rt, "briefing", {
     model,
-    system: SYSTEM_PROMPT,
+    system: systemFor(rt.config),
     maxTokens: MAX_TOKENS,
-    messages: [{ role: "user", content: `${BRIEFING_TASK}\n\nVerdict labels you may use: ${Object.values(VERDICT_LABELS).join(", ")}.\n\nContext:\n${wrapData("briefing_context", context)}` }],
+    messages: [{ role: "user", content: `${BRIEFING_TASK}\n\nContext:\n${wrapData("briefing_context", context)}` }],
   });
   const text = res.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
   if (!text) throw new Error("The model returned no text.");

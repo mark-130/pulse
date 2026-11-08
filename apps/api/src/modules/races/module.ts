@@ -4,7 +4,7 @@ import { raceMetaInputSchema, type Module, type RaceMetaResponse } from "@pulse/
 import { z } from "zod";
 import type { Db } from "../../db/index.js";
 import { race, raceMeta } from "../../db/schema.js";
-import { getRaceView } from "./data.js";
+import { getLeadUp, getRaceView } from "./data.js";
 
 const putBody = raceMetaInputSchema.extend({ key: z.string().min(1).max(300) });
 
@@ -19,6 +19,11 @@ export function createRacesModule(deps: { db: Db; now?: () => Date }): Module<Ho
     name: "races",
     routes: (app) => {
       app.get("/api/races", (c) => c.json(getRaceView(db, clock())));
+      // Facts from the cache about the weeks before one race. Reads only, no AI.
+      app.get("/api/leadup", (c) => {
+        const found = getLeadUp(db, clock(), c.req.query("race") ?? "");
+        return found ? c.json(found) : c.json({ error: "Unknown race." }, 404);
+      });
       // Sets exactly these fields. null clears one, both null removes the row. The response carries the previous values for an undo.
       app.put("/api/races/meta", async (c) => {
         const body = putBody.safeParse(await c.req.json().catch(() => null));

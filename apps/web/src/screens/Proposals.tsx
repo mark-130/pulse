@@ -19,8 +19,9 @@ function Row({ p, action }: { p: Proposal; action?: React.ReactNode }) {
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <p className="font-medium">{kindTitle(p.kind)}</p>
         <Chip>{targetName(p.kind)}</Chip>
-        {p.status !== "pending" && <Chip tone={p.status === "applied" ? "taper" : "neutral"}>{statusLabel(p)}</Chip>}
-        {verification && <Chip tone={p.result?.verification?.state === "verified" ? "taper" : "neutral"}>{verification}</Chip>}
+        {p.createdBy === "ai" && <Chip tone="soft">Proposed by AI</Chip>}
+        {p.status !== "pending" && <Chip tone={p.status === "applied" ? "soft" : "neutral"}>{statusLabel(p)}</Chip>}
+        {verification && <Chip tone={p.result?.verification?.state === "verified" ? "soft" : "neutral"}>{verification}</Chip>}
       </div>
       <p className={`text-[15px] [overflow-wrap:anywhere] ${isDestructive(p.kind) ? "text-danger" : ""}`}>{summary(p)}</p>
       <p className="t-secondary">

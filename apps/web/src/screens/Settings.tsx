@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AI_BUDGET_TEXT } from "@pulse/shared";
 import { Button, Card } from "@/components/ui";
 import { UpdateCard } from "@/components/UpdateCard";
 import { useAiStatus } from "@/lib/queries";
@@ -23,8 +24,9 @@ function AiUsage() {
       {q.isError && <p role="alert" className="text-danger">{q.error.message}</p>}
       {s && (
         <div className="space-y-3 text-[15px]">
-          <p className="font-semibold">{s.state === "off" ? "AI is off. Set ANTHROPIC_API_KEY to switch it on." : s.state === "budget" ? "Monthly AI budget reached. AI returns next month." : "AI is on."}</p>
+          <p className="font-semibold">{s.state === "off" ? "AI is off. Set ANTHROPIC_API_KEY to switch it on." : s.state === "budget" ? `${AI_BUDGET_TEXT}. AI returns next month.` : "AI is on."}</p>
           {s.notice && <p role="status">{s.notice}</p>}
+          <p className="t-secondary">AI proposals are {s.proposals ? "on" : "off"}.</p>
           <div>
             <p className="t-label">This month ({s.month.label})</p>
             <p className="font-display text-[22px] font-semibold">{gbp(s.month.spentGbp)} <span className="t-secondary font-sans text-[13px] font-normal">of {gbp(s.month.capGbp)}, {s.month.percent} percent, {plural(s.month.calls, "call")}</span></p>

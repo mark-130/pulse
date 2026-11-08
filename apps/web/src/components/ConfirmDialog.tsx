@@ -66,7 +66,8 @@ export function ConfirmDialog({ proposal, writesEnabled, probeRecorded, onClose,
             </div>
           )}
           {p.kind === "garmin.reschedule" && !probeRecorded && <p className="t-secondary mt-3">{PLAN_APP_NOTE}</p>}
-          <p className="t-secondary mt-3">Proposed by you, {formatDateTime(p.createdAt)}. Expires {formatDateTime(p.expiresAt)}.</p>
+          <p className="t-secondary mt-3">{p.createdBy === "ai" ? "Proposed by AI in Ask" : "Proposed by you"}, {formatDateTime(p.createdAt)}. Expires {formatDateTime(p.expiresAt)}.</p>
+          {p.createdBy === "ai" && p.rationale && <p className="t-secondary mt-1 [overflow-wrap:anywhere]">Reason given: {p.rationale}</p>}
 
           {p.status === "stale" && (
             <div role="alert" className="mt-3 rounded-2xl border border-[color:var(--verdict-easy)] p-3 text-[15px]">

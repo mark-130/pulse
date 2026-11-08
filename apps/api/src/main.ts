@@ -33,23 +33,26 @@ try {
 if (!ntfyEnabled(config)) log.info("ntfy alerts off");
 const { db, sqlite } = openDb(config.DATA_DIR, config.MIGRATIONS_DIR);
 const connectGarmin = createMcpConnector(config.GARMIN_MCP_URL);
-const { module: garminModule, garmin } = createGarminModule({
-  db,
-  sqlite,
-  config,
-  connect: connectGarmin,
-  onWorkoutsSynced: (now) => void verifyApplied(db, now),
-  notify: createNotifier(config, log),
-  log,
-});
-const { module: aiModule } = createAiModule({
+const { module: aiModule, afterSync } = createAiModule({
   db,
   config,
   llm: aiConfigured(config) ? createAnthropicClient(config.ANTHROPIC_API_KEY) : null,
   log,
   now: () => new Date(),
 });
+const { module: garminModule, garmin } = createGarminModule({
+  db,
+  sqlite,
+  config,
+  connect: connectGarmin,
+  onWorkoutsSynced: (now) => void verifyApplied(db, now),
+  onSynced: () => void afterSync(),
+  notify: createNotifier(config, log),
+  log,
+});
 log.info(aiConfigured(config) ? "ai on" : "ai off, no key set");
+const aiProposalsOn = config.AI_PROPOSALS === "on" && config.PULSE_GARMIN_WRITES === "on";
+log.info({ aiProposals: config.AI_PROPOSALS }, aiProposalsOn ? "ai proposals on" : "ai proposals off, no proposal will be created by AI");
 const writesEnabled = config.PULSE_GARMIN_WRITES === "on";
 log.info({ writes: writesEnabled ? "on" : "off" }, writesEnabled ? "garmin writes on" : "garmin writes off, confirmed changes are dry runs");
 const updateService = createUpdateService({ build: buildInfo(config), enabled: config.WATCHTOWER_TOKEN.trim() !== "" });

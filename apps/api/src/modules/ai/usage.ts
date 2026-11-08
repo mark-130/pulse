@@ -6,7 +6,7 @@ import type { Db } from "../../db/index.js";
 import { aiUsage } from "../../db/schema.js";
 import { costGbp, PRICES_CHECKED_ON, PRICES_USD_PER_MTOK, type TokenUsage } from "./pricing.js";
 
-export type AiConfig = Pick<Config, "ANTHROPIC_API_KEY" | "ANTHROPIC_MODEL_SMART" | "ANTHROPIC_MODEL_FAST" | "AI_MONTHLY_CAP_GBP" | "AI_USD_TO_GBP">;
+export type AiConfig = Pick<Config, "ANTHROPIC_API_KEY" | "ANTHROPIC_MODEL_SMART" | "ANTHROPIC_MODEL_FAST" | "AI_MONTHLY_CAP_GBP" | "AI_USD_TO_GBP" | "AI_PROPOSALS" | "PULSE_GARMIN_WRITES">;
 
 export const aiConfigured = (c: Pick<Config, "ANTHROPIC_API_KEY">): boolean => c.ANTHROPIC_API_KEY.trim() !== "";
 
@@ -76,6 +76,7 @@ export function aiStatus(db: Db, config: AiConfig, now: Date): AiStatus {
     message: gate.ok ? null : gate.message,
     notice,
     month: { label: m.label, spentGbp: m.spent, capGbp: config.AI_MONTHLY_CAP_GBP, percent, calls: m.calls, byFeature: m.byFeature },
+    proposals: config.AI_PROPOSALS === "on" && config.PULSE_GARMIN_WRITES === "on",
     pricing: { checkedOn: PRICES_CHECKED_ON, usdToGbp: config.AI_USD_TO_GBP, models: Object.keys(PRICES_USD_PER_MTOK) },
   };
 }

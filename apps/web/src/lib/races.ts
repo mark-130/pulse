@@ -6,14 +6,13 @@ function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export type DayKind = "today" | "taper" | "race" | "plain";
+export type DayKind = "today" | "race" | "plain";
 
-/** The seven day row on the Today race card: today outlined, taper days tinted, race day filled. */
-export function sevenDayRow(today: string, race: Pick<RaceView, "date" | "taper"> | null): DayKind[] {
+/** The seven day row on the Today race card: today outlined, race day filled. */
+export function sevenDayRow(today: string, race: Pick<RaceView, "date"> | null): DayKind[] {
   return Array.from({ length: 7 }, (_, i) => {
     const date = addDays(today, i);
     if (race && date === race.date) return "race";
-    if (race?.taper.start && date >= race.taper.start && date < race.date) return i === 0 ? "today" : "taper";
     return i === 0 ? "today" : "plain";
   });
 }

@@ -84,24 +84,6 @@ export function recoveryDays(cls: RaceClass | null, priority: Priority, type: Ra
   return base[cls] + trail;
 }
 
-const CLASS_LABEL: Record<RaceClass, string> = { "10k": "10K", half: "half marathon", marathon: "marathon" };
-
-/** Plain advice, from the TRAINING.md defaults. Advice only, not medical guidance. */
-export function taperAdvice(cls: RaceClass | null, priority: Priority, type: RaceType): string | null {
-  if (cls === null || priority === "C") return null;
-  const key = `${cls}-${priority}`;
-  const lines: Record<string, string> = {
-    "10k-A": "Final week at 70 to 80 percent of normal volume. Keep short race pace work. Last hard session 4 to 5 days out. Easy day plus strides the day before.",
-    "10k-B": "About 20 percent volume cut. Last hard session 3 to 4 days out.",
-    "half-A": "Volume falls to about 75 percent, then about 60 percent. Last long run 8 to 10 days out and shortened. Keep a few race pace reps.",
-    "half-B": "About 25 percent volume cut. Last long run at least 7 days out.",
-    "marathon-A": "Week minus 3 about 85 percent, minus 2 about 65 percent, race week about 45 percent. Last long run 14 to 16 days out. Keep marathon pace segments.",
-    "marathon-B": "A mini taper: about 25 to 30 percent volume cut over the final 10 days. Last long run at least 10 days out.",
-  };
-  const trail = type === "trail" && cls !== "10k" ? " No hard downhill sessions in the final 7 days." : "";
-  return `${CLASS_LABEL[cls]}, ${priority}. ${lines[key] ?? ""}${trail} Advice only, not medical guidance.`.replace(/\s+/g, " ");
-}
-
 const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
@@ -121,20 +103,8 @@ function flagsFor(r: RaceInput, goal: number | null, distanceInferred: boolean, 
   if (goal === null) flags.push({ kind: "no_goal", text: "No goal time. Add one in Garmin Connect." });
   if (!r.isRace) flags.push({ kind: "not_a_race", text: "Garmin does not mark this as a race. It counts as C unless you set a priority." });
   if (distanceInferred) flags.push({ kind: "distance_inferred", text: "Distance guessed from the title. Add it in Garmin Connect." });
-  if (distanceM === null) flags.push({ kind: "distance_unknown", text: "No distance, so no taper advice. Add it in Garmin Connect." });
+  if (distanceM === null) flags.push({ kind: "distance_unknown", text: "No distance known. Add it in Garmin Connect." });
   return flags;
-}
-
-function statusLine(today: string, date: string, priority: Priority, days: number, start: string | null, rec: { until: string | null }): string {
-  const until = daysBetween(today, date);
-  if (until < 0) {
-    if (rec.until && today <= rec.until) return `Done. Easy running only until ${dm(rec.until)}.`;
-    return "Done. Recovery window over.";
-  }
-  if (until === 0) return "Race day.";
-  if (priority === "C" || start === null) return priority === "C" ? "No taper. Treat it as a workout." : "No taper dates without a distance.";
-  if (today >= start) return `In the taper, day ${daysBetween(start, today) + 1} of ${days}.`;
-  return `Taper starts ${dm(start)}, in ${plural(daysBetween(today, start), "day")}.`;
 }
 
 export function buildRace(r: RaceInput, meta: MetaInput | undefined, today: string): RaceView {
@@ -170,17 +140,10 @@ export function buildRace(r: RaceInput, meta: MetaInput | undefined, today: stri
     typeInferred: meta?.type == null,
     classified: meta?.priority != null && meta?.type != null,
     raceClass: cls,
-    taper: { days, start, status: statusLine(today, r.date, priority, days, start, { until }), advice: taperAdvice(cls, priority, type) },
+    taper: { days, start },
     recovery: { days: recDays, until },
     flags: flagsFor(r, goal, distanceInferred, distanceM),
   };
-}
-
-/** Taper start as if the race were at least B, so every race in a clash gets a date to plan from. */
-function suggestedTaperStart(r: RaceView): string | null {
-  const p: Priority = r.priority === "C" ? "B" : r.priority;
-  const d = taperDays(r.raceClass, p);
-  return d > 0 ? addDays(r.date, -d) : null;
 }
 
 function isHalfOrLonger(r: RaceView): boolean {
@@ -190,7 +153,6 @@ function isHalfOrLonger(r: RaceView): boolean {
 export function buildWarnings(races: RaceView[], workouts: WorkoutInput[], today: string): RaceWarning[] {
   const out: RaceWarning[] = [];
   const upcoming = races.filter((r) => !r.past).sort((a, b) => a.date.localeCompare(b.date));
-  const starts = (list: RaceView[]) => list.map((r) => ({ raceKey: r.eventKey, date: suggestedTaperStart(r) }));
 
   // Clusters: connected races within 21 days where either end of a link is a half marathon or longer.
   const parent = new Map(upcoming.map((r) => [r.eventKey, r.eventKey]));
@@ -219,9 +181,9 @@ export function buildWarnings(races: RaceView[], workouts: WorkoutInput[], today
     const span = daysBetween(first.date, last.date);
     const names = g.map((r) => r.title).join(", ");
     const message = needsChoice
-      ? `${g.length} races within ${plural(Math.max(span, 1), "day")} of each other: ${names}. Only one can be A. Choose which one, and the earlier races can be C or a controlled effort. The later race's taper takes precedence.`
-      : `${g.length} races within ${plural(Math.max(span, 1), "day")} of each other: ${names}. The earlier races are best run as a controlled effort. The later race's taper takes precedence.`;
-    out.push({ id: `cluster:${g.map((r) => r.eventKey).join("+")}`, kind: "cluster", severity: needsChoice ? "action" : "info", raceKeys: g.map((r) => r.eventKey), message, needsChoice, taperStarts: starts(g) });
+      ? `${g.length} races within ${plural(Math.max(span, 1), "day")} of each other: ${names}. Their priorities are not settled: more than one is A, or the A race was not set by you.`
+      : `${g.length} races within ${plural(Math.max(span, 1), "day")} of each other: ${names}.`;
+    out.push({ id: `cluster:${g.map((r) => r.eventKey).join("+")}`, kind: "cluster", severity: needsChoice ? "action" : "info", raceKeys: g.map((r) => r.eventKey), message, needsChoice });
   }
 
   // Recovery and taper clashes between an earlier and a later race.
@@ -234,9 +196,8 @@ export function buildWarnings(races: RaceView[], workouts: WorkoutInput[], today
           kind: "recovery_clash",
           severity: "action",
           raceKeys: [earlier.eventKey, later.eventKey],
-          message: `${later.title} is ${plural(daysBetween(earlier.date, later.date), "day")} after ${earlier.title}, inside its recovery window. Easy running only until ${dm(earlier.recovery.until)}.`,
+          message: `${later.title} is ${plural(daysBetween(earlier.date, later.date), "day")} after ${earlier.title}, inside its reference recovery window, which runs to ${dm(earlier.recovery.until)}.`,
           needsChoice: false,
-          taperStarts: starts([earlier, later]),
         });
       }
       if (!earlier.past && later.taper.start && earlier.date >= later.taper.start) {
@@ -245,9 +206,8 @@ export function buildWarnings(races: RaceView[], workouts: WorkoutInput[], today
           kind: "taper_clash",
           severity: "action",
           raceKeys: [earlier.eventKey, later.eventKey],
-          message: `${earlier.title} on ${dm(earlier.date)} falls inside the taper for ${later.title}, which starts ${dm(later.taper.start)}.`,
+          message: `${earlier.title} on ${dm(earlier.date)} falls inside the reference taper window before ${later.title}, which starts ${dm(later.taper.start)}.`,
           needsChoice: false,
-          taperStarts: starts([earlier, later]),
         });
       }
     }
@@ -264,9 +224,8 @@ export function buildWarnings(races: RaceView[], workouts: WorkoutInput[], today
         kind: "long_run",
         severity: "info",
         raceKeys: [r.eventKey],
-        message: `A ${Math.round((w.durationS ?? 0) / 60)} minute session is scheduled on ${dm(w.date)}, ${plural(before, "day")} before ${r.title}. Consider shortening it${r.taper.start ? `. Taper suggested from ${dm(suggestedTaperStart(r) ?? r.taper.start)}` : ""}.`,
+        message: `A ${Math.round((w.durationS ?? 0) / 60)} minute session is scheduled on ${dm(w.date)}, ${plural(before, "day")} before ${r.title}.`,
         needsChoice: false,
-        taperStarts: starts([r]),
       });
     }
   }

@@ -159,7 +159,13 @@ export function rejectProposal(db: Db, id: string, now: Date): Proposal {
 }
 
 /** Manual creators. Workout content is never edited, only the date. They only create proposals. */
-export function proposeReschedule(db: Db, scheduledId: string, date: string, now: Date): Proposal {
+export interface Creator {
+  createdBy: "user" | "ai";
+  rationale: string | null;
+}
+const USER: Creator = { createdBy: "user", rationale: null };
+
+export function proposeReschedule(db: Db, scheduledId: string, date: string, now: Date, by: Creator = USER): Proposal {
   const row = db.select().from(workout).where(eq(workout.garminScheduledId, scheduledId)).get();
   if (!row) throw new ProposalError("Unknown workout.", 404);
   const today = londonDate(now);
@@ -168,16 +174,16 @@ export function proposeReschedule(db: Db, scheduledId: string, date: string, now
   if (date < today || date > addDays(today, SCHEDULE_AHEAD_DAYS)) throw new ProposalError(`Pick a date from today up to ${SCHEDULE_AHEAD_DAYS} days ahead.`, 400);
   if (date === row.date) throw new ProposalError("The workout is already on that date.", 400);
   const before = workoutState(row);
-  return createProposal(db, { kind: "garmin.reschedule", createdBy: "user", rationale: null, before, after: { ...before, date }, now });
+  return createProposal(db, { kind: "garmin.reschedule", createdBy: by.createdBy, rationale: by.rationale, before, after: { ...before, date }, now });
 }
 
-export function proposeUnschedule(db: Db, scheduledId: string, now: Date): Proposal {
+export function proposeUnschedule(db: Db, scheduledId: string, now: Date, by: Creator = USER): Proposal {
   const row = db.select().from(workout).where(eq(workout.garminScheduledId, scheduledId)).get();
   if (!row) throw new ProposalError("Unknown workout.", 404);
   if (row.completed) throw new ProposalError("A completed workout cannot be removed.", 400);
   if (row.date < londonDate(now)) throw new ProposalError("A past workout cannot be removed.", 400);
   const before = workoutState(row);
-  return createProposal(db, { kind: "garmin.unschedule", createdBy: "user", rationale: null, before, after: null, now });
+  return createProposal(db, { kind: "garmin.unschedule", createdBy: by.createdBy, rationale: by.rationale, before, after: null, now });
 }
 
 /**

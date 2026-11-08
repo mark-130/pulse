@@ -23,7 +23,7 @@ export class AiUnavailable extends Error {
   }
 }
 
-export type AiFeature = "briefing" | "ask";
+export type AiFeature = "briefing" | "ask" | "review" | "debrief";
 
 /**
  * Every model call goes through here: the gate (key present, monthly cap not reached) is checked first,

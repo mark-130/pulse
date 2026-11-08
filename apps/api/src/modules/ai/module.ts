@@ -1,5 +1,9 @@
 import type { Hono } from "hono";
-import { AI_BUDGET_TEXT, AI_OFF_TEXT, chatRequestSchema, type BriefingResponse, type ChatThread, type Module } from "@pulse/shared";
+import { z } from "zod";
+import { AI_BUDGET_TEXT, AI_OFF_TEXT, chatRequestSchema, type BriefingResponse, type ChatThread, type DebriefOneResponse, type DebriefsResponse, type Module, type ReviewResponse } from "@pulse/shared";
+import { weekStart } from "../../dates.js";
+import { debriefNewRuns, generateDebrief, getDebrief } from "./debrief.js";
+import { generateReview, getReview, thisWeek } from "./review.js";
 import { generateBriefing, getBriefing } from "./briefing.js";
 import { ask, getThread } from "./chat.js";
 import { AiUnavailable, type AiRuntime } from "./runtime.js";
@@ -8,8 +12,8 @@ import { mentionsHealthConcern } from "./verdict.js";
 
 const RETRY_AFTER_FAILURE_MS = 10 * 60_000;
 
-/** AI routes. Reads and the AI features only. No write-shaped tool exists in Phase 4a. */
-export function createAiModule(rt: AiRuntime): { module: Module<Hono>; generateIfMissing: () => Promise<void> } {
+/** AI routes: briefing, Ask, weekly review and debriefs. The model never writes anything itself. Its only write-shaped tools create pending proposals, and only while AI_PROPOSALS is on. */
+export function createAiModule(rt: AiRuntime): { module: Module<Hono>; generateIfMissing: () => Promise<void>; afterSync: () => Promise<void> } {
   let lastFailure = 0;
   let inflight: Promise<unknown> | null = null;
   const busyThreads = new Set<string>();
@@ -37,9 +41,80 @@ export function createAiModule(rt: AiRuntime): { module: Module<Hono>; generateI
     return briefingState();
   }
 
+  /** One generation per key at a time. Returns true if it failed. The cap and AI off are not failures. */
+  const flights = new Map<string, Promise<boolean>>();
+  function guarded(key: string, fn: () => Promise<unknown>): Promise<boolean> {
+    let p = flights.get(key);
+    if (!p) {
+      p = fn()
+        .then(() => false)
+        .catch((err: unknown) => !(err instanceof AiUnavailable))
+        .finally(() => void flights.delete(key));
+      flights.set(key, p);
+    }
+    return p;
+  }
+  const gateState = () => {
+    const g = aiGate(rt.db, rt.config, rt.now());
+    return { state: g.ok ? ("ok" as const) : g.reason, message: g.ok ? null : g.message, ok: g.ok };
+  };
+
+  const reviewBody = (ws: string, failed = false): ReviewResponse => {
+    const g = gateState();
+    return { state: g.state, message: g.message, review: getReview(rt, ws), canWrite: ws <= thisWeek(rt), failed };
+  };
+  const dateParam = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+  let afterSyncRunning: Promise<void> | null = null;
+  const afterSync = (): Promise<void> => {
+    // New runs get a debrief automatically, a few at a time. Quiet when AI is off or the cap is reached.
+    afterSyncRunning ??= debriefNewRuns(rt, () => undefined)
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => void (afterSyncRunning = null));
+    return afterSyncRunning;
+  };
+
   const module: Module<Hono> = {
     name: "ai",
     routes: (app) => {
+      // Weekly review, cached per week.
+      app.get("/api/review", (c) => {
+        const w = dateParam.safeParse(c.req.query("week") ?? thisWeek(rt));
+        if (!w.success) return c.json({ error: "week must be YYYY-MM-DD" }, 400);
+        return c.json(reviewBody(weekStart(w.data)));
+      });
+      app.post("/api/review", async (c) => {
+        const b = z.object({ week: dateParam.optional(), refresh: z.boolean().optional() }).safeParse(await c.req.json().catch(() => null));
+        if (!b.success) return c.json({ error: "Expected a week (YYYY-MM-DD) and optionally refresh." }, 400);
+        const ws = weekStart(b.data.week ?? thisWeek(rt));
+        if (ws > thisWeek(rt)) return c.json({ error: "A week that has not started has no review." }, 400);
+        if (!gateState().ok || (getReview(rt, ws) && !b.data.refresh)) return c.json(reviewBody(ws));
+        const failed = await guarded(`review:${ws}`, () => generateReview(rt, ws, b.data.refresh ?? false));
+        return c.json(reviewBody(ws, failed));
+      });
+
+      // Post-run debriefs, cached by activity id.
+      app.get("/api/debriefs", (c) => {
+        const ids = (c.req.query("ids") ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 40);
+        const g = gateState();
+        const debriefs: DebriefsResponse["debriefs"] = {};
+        for (const id of ids) {
+          const d = getDebrief(rt, id);
+          if (d) debriefs[id] = d;
+        }
+        const body: DebriefsResponse = { state: g.state, message: g.message, debriefs };
+        return c.json(body);
+      });
+      app.post("/api/debrief", async (c) => {
+        const b = z.object({ id: z.string().min(1).max(40), refresh: z.boolean().optional() }).safeParse(await c.req.json().catch(() => null));
+        if (!b.success) return c.json({ error: "Expected an activity id." }, 400);
+        const g = gateState();
+        const done = (failed = false): DebriefOneResponse => ({ state: gateState().state, message: gateState().message, debrief: getDebrief(rt, b.data.id), failed });
+        if (!g.ok || (getDebrief(rt, b.data.id) && !b.data.refresh)) return c.json(done());
+        const failed = await guarded(`debrief:${b.data.id}`, () => generateDebrief(rt, b.data.id, b.data.refresh ?? false));
+        return c.json(done(failed));
+      });
+
       app.get("/api/ai/status", (c) => c.json(aiStatus(rt.db, rt.config, rt.now())));
       app.get("/api/briefing", (c) => c.json(briefingState()));
       // Generates today's briefing only if it is missing. One call, once a day.
@@ -79,7 +154,11 @@ export function createAiModule(rt: AiRuntime): { module: Module<Hono>; generateI
         }
       });
     },
-    jobs: [{ name: "briefing", schedule: "30 6 * * *", run: async () => void (await generate()) }],
+    jobs: [
+      { name: "briefing", schedule: "30 6 * * *", run: async () => void (await generate()) },
+      // Sunday evening: this week's review, if there is not one yet. Quiet when AI is off or the cap is reached.
+      { name: "weekly-review", schedule: "0 19 * * 0", run: async () => void (await guarded(`review:${thisWeek(rt)}`, () => generateReview(rt, thisWeek(rt)))) },
+    ],
   };
-  return { module, generateIfMissing: async () => void (await generate()) };
+  return { module, generateIfMissing: async () => void (await generate()), afterSync };
 }

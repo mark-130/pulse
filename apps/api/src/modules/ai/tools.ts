@@ -2,20 +2,20 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { addDays, londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
-import { activity, workout } from "../../db/schema.js";
+import { activity } from "../../db/schema.js";
 import { getToday, getTrends, getWeek } from "../garmin/queries.js";
-import { getRaceView } from "../races/data.js";
+import { getLeadUp, getRaceView } from "../races/data.js";
 import type { LlmTool } from "./llm.js";
 
 /**
  * The only tools Ask can use. All of them read the app's own database through its own read functions.
- * There are no write-shaped tools in Phase 4a, and nothing here can reach Garmin, a proposal or an executor.
+ * There are no write-shaped tools here. The propose tools are in proposal-tools.ts and only exist while AI_PROPOSALS is on. Nothing here can reach Garmin or an executor.
  */
 export const ASK_TOOLS: LlmTool[] = [
-  { name: "get_today", description: "Today's readiness verdict with reasons, Garmin's readiness score, today's session, key metrics (sleep, HRV, resting heart rate, body battery), the next two races and the pending proposal count.", input_schema: { type: "object", properties: {} } },
+  { name: "get_today", description: "Today's readings with their dates (Garmin readiness, sleep, HRV, resting heart rate, body battery), what is scheduled and recorded today, the next two races and the pending proposal count.", input_schema: { type: "object", properties: {} } },
   { name: "get_week", description: "One week Monday to Sunday: scheduled workouts, recorded activities and running totals. Defaults to this week.", input_schema: { type: "object", properties: { start: { type: "string", description: "Any date in the week, YYYY-MM-DD." } } } },
-  { name: "list_races", description: "Races from the Garmin calendar with priority, type, distance, goal, taper and recovery dates, data quality flags and warnings.", input_schema: { type: "object", properties: { include_past: { type: "boolean" } } } },
-  { name: "get_race_context", description: "One race in depth: its details, taper status, related warnings, the workouts scheduled in the 14 days before it and recent weekly running distance.", input_schema: { type: "object", properties: { race: { type: "string", description: 'The word "next", or part of the race name.' } }, required: ["race"] } },
+  { name: "list_races", description: "Races from the Garmin calendar with priority (only if Mark set it), type, distance, goal, data quality flags and clash warnings.", input_schema: { type: "object", properties: { include_past: { type: "boolean" } } } },
+  { name: "get_race_leadup", description: "Facts about one race and the weeks before it, from Garmin: days to go, per week the number of scheduled workouts, scheduled minutes, the longest scheduled session, rest days and completed against scheduled so far, plus flags (priority not set, start time unverified, another race nearby, a workout on race day) and clash warnings. No suggestions.", input_schema: { type: "object", properties: { race: { type: "string", description: 'The word "next", or part of the race name.' } }, required: ["race"] } },
   { name: "get_metrics", description: "A metric history from the last sync: training_load (acute, chronic, ratio), vo2max, endurance, weekly_distance or race_predictions.", input_schema: { type: "object", properties: { metric: { type: "string", enum: ["training_load", "vo2max", "endurance", "weekly_distance", "race_predictions"] }, days: { type: "number", description: "How many recent days, 1 to 90. Default 28." } }, required: ["metric"] } },
   { name: "get_activity", description: "One recorded activity by id, from the Garmin sync.", input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
 ];
@@ -56,7 +56,7 @@ export function wrapData(source: string, value: unknown): string {
 
 const weekArgs = z.object({ start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
 const racesArgs = z.object({ include_past: z.boolean().optional() });
-const contextArgs = z.object({ race: z.string().min(1).max(100) });
+const leadupArgs = z.object({ race: z.string().min(1).max(100) });
 const metricsArgs = z.object({ metric: z.enum(["training_load", "vo2max", "endurance", "weekly_distance", "race_predictions"]), days: z.number().int().min(1).max(90).optional() });
 const activityArgs = z.object({ id: z.string().min(1).max(40) });
 
@@ -75,13 +75,10 @@ function raceBrief(r: ReturnType<typeof getRaceView>["races"][number]) {
     timeZone: r.timeZone,
     distanceKm: r.distanceM === null ? null : Math.round(r.distanceM) / 1000,
     goalTimeSeconds: r.goalTimeSeconds,
-    priority: r.priority,
+    // A priority Mark has not set is only a suggestion. It is never given as a fact.
+    priority: r.priorityInferred ? "Priority not set" : r.priority,
     prioritySetByMark: !r.priorityInferred,
     type: r.type,
-    taperStart: r.taper.start,
-    taperStatus: r.taper.status,
-    taperAdvice: r.taper.advice,
-    recoveryUntil: r.recovery.until,
     flags: r.flags.map((f) => f.text),
   };
 }
@@ -93,7 +90,7 @@ export function runTool(name: string, input: unknown, ctx: ToolContext): string 
     switch (name) {
       case "get_today": {
         const t = getToday(ctx.db, ctx.now);
-        return wrapData(name, { date: t.date, syncedAt: t.syncedAt, verdict: t.verdict, garminReadiness: t.readiness, session: t.session, metrics: t.metrics, nextRace: t.nextRace && raceBrief(t.nextRace), followingRace: t.followingRace && raceBrief(t.followingRace), pendingProposals: t.proposals.pending });
+        return wrapData(name, { date: t.date, syncedAt: t.syncedAt, readings: t.verdict.signals.map((x) => x.text), garminReadiness: t.readiness, session: t.session, metrics: t.metrics, nextRace: t.nextRace && raceBrief(t.nextRace), followingRace: t.followingRace && raceBrief(t.followingRace), pendingProposals: t.proposals.pending });
       }
       case "get_week": {
         const a = weekArgs.parse(input ?? {});
@@ -104,17 +101,13 @@ export function runTool(name: string, input: unknown, ctx: ToolContext): string 
         const v = getRaceView(ctx.db, ctx.now);
         return wrapData(name, { syncedAt: v.syncedAt, races: v.races.filter((r) => a.include_past || !r.past).map(raceBrief), warnings: v.warnings.map((w) => ({ kind: w.kind, severity: w.severity, message: w.message, needsChoice: w.needsChoice })) });
       }
-      case "get_race_context": {
-        const a = contextArgs.parse(input);
+      case "get_race_leadup": {
+        const a = leadupArgs.parse(input);
         const v = getRaceView(ctx.db, ctx.now);
-        const upcoming = v.races.filter((r) => !r.past);
         const q = a.race.trim().toLowerCase();
-        const r = q === "next" ? upcoming[0] : v.races.find((x) => x.title.toLowerCase().includes(q));
+        const r = q === "next" ? v.races.find((x) => !x.past) : v.races.find((x) => x.title.toLowerCase().includes(q));
         if (!r) return wrapData(name, { error: `No race matches "${a.race}".`, races: v.races.map((x) => x.title) });
-        const from = addDays(r.date, -14);
-        const lead = ctx.db.select().from(workout).all().filter((w) => w.date >= from && w.date <= r.date).sort((x, y) => x.date.localeCompare(y.date)).map((w) => ({ date: w.date, name: w.name, durationMin: w.durationS === null ? null : Math.round(w.durationS / 60) }));
-        const weekly = getTrends(ctx.db, ctx.now).weeklyDistance.slice(-6).map((w) => ({ weekStart: w.weekStart, km: Math.round(w.distanceM / 100) / 10, runs: w.runs }));
-        return wrapData(name, { race: raceBrief(r), warnings: v.warnings.filter((w) => w.raceKeys.includes(r.eventKey)).map((w) => w.message), scheduledWorkoutsBeforeRace: lead, recentWeeklyRunning: weekly });
+        return wrapData(name, { race: raceBrief(r), ...getLeadUp(ctx.db, ctx.now, r.eventKey) });
       }
       case "get_metrics": {
         const a = metricsArgs.parse(input);

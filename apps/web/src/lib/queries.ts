@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { aiStatusSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
+import { aiStatusSchema, debriefOneResponseSchema, debriefsResponseSchema, reviewResponseSchema, leadUpResponseSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
 import { z } from "zod";
 import { api } from "./api";
 
@@ -38,6 +38,7 @@ export function useSetRaceMeta() {
   return useMutation({
     mutationFn: (v: { key: string } & RaceMetaInput) => api("/api/races/meta", raceMetaResponseSchema, { method: "PUT", body: v }),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["leadup"] });
       void qc.invalidateQueries({ queryKey: ["races"] });
       void qc.invalidateQueries({ queryKey: ["today"] });
     },
@@ -111,5 +112,35 @@ export function useCheckUpdate() {
   return useMutation({
     mutationFn: () => api("/api/update/check", updateCheckResponseSchema, { method: "POST" }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["update"] }),
+  });
+}
+
+/** Facts from the cache about the weeks before one race. Needs no AI. */
+export const useLeadUp = (race: string) => useQuery({ queryKey: ["leadup", race], queryFn: () => api(`/api/leadup?race=${encodeURIComponent(race)}`, leadUpResponseSchema), enabled: race !== "" });
+
+export const useReview = (week: string | null) => useQuery({ queryKey: ["review", week], queryFn: () => api(week ? `/api/review?week=${week}` : "/api/review", reviewResponseSchema) });
+
+export function useWriteReview(week: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (refresh: boolean) => api("/api/review", reviewResponseSchema, { method: "POST", body: { week: week ?? undefined, refresh } }),
+    onSuccess: (data) => {
+      qc.setQueryData(["review", week], data);
+      void qc.invalidateQueries({ queryKey: ["ai-status"] });
+    },
+  });
+}
+
+export const useDebriefs = (ids: string[]) =>
+  useQuery({ queryKey: ["debriefs", ids.join(",")], queryFn: () => api(`/api/debriefs?ids=${ids.join(",")}`, debriefsResponseSchema), enabled: ids.length > 0 });
+
+export function useWriteDebrief() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; refresh: boolean }) => api("/api/debrief", debriefOneResponseSchema, { method: "POST", body: v }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["debriefs"] });
+      void qc.invalidateQueries({ queryKey: ["ai-status"] });
+    },
   });
 }

@@ -13,20 +13,24 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - sync_state: job, last_ok, last_attempt, last_error, consecutive_failures, last_alert_at, detail
 - briefing: date, text, data JSON (generatedAt, stale groups, the context sent), model, tokens
 - chat_message: thread, role, content, tool_calls JSON
+- ai_text: kind, key, text, data JSON, model, tokens, created_at, primary key (kind, key). Cached AI text: weekly_review (week start) or debrief (activity id). Rewritten only on Refresh.
 - ai_usage: ts, feature, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_gbp (real, GBP)
-- settings: key, value JSON (taper overrides, home coordinates, Phase 5 calendar allowlist)
+- settings: key, value JSON (garmin_backfill windows, home coordinates, Phase 5 calendar allowlist)
 - secret: name, ciphertext (AES-256-GCM, key from PULSE_SECRET_KEY)
 
 ## Races (Phase 2)
-- Rules live in apps/api/src/modules/races/logic.ts as pure functions (inference, taper, recovery, flags, warnings), tested against the TRAINING.md fixtures with no race names in production code.
-- GET /api/races returns every active race with the effective priority, type, distance and goal, taper and recovery dates, data quality flags and the warnings. It reads the database only.
+- Rules live in apps/api/src/modules/races/logic.ts as pure functions (inference, reference windows, flags, clash warnings), tested against the TRAINING.md fixtures with no race names in production code.
+- GET /api/races returns every active race with the effective priority, type, distance and goal, data quality flags and the clash warnings. The taper and recovery windows are internal reference values for the clash flags and are not returned as advice (D42). It reads the database only.
 - PUT /api/races/meta {key, priority, type} writes race_meta for one race (key is race.event_key). null clears a field and both null removes the row. The response carries the previous values so the screen can offer an undo. Session and CSRF are required. No confirm tap, because only our own database changes and Garmin is never written (D29).
 - Today reads its next race from the same function, so the chips on the race card match the Races screen.
 
 ## AI (Phase 4a)
 - apps/api/src/modules/ai: llm.ts (the small model interface tests mock), anthropic.ts (the SDK client), runtime.ts (callModel: gate, call, usage row), usage.ts (cap, month spend, status), pricing.ts, verdict.ts (readiness rules), tools.ts (the six read tools and the data wrapper), briefing.ts, chat.ts (the capped tool loop), module.ts (routes and the 06:30 job).
 - Routes: GET /api/ai/status, GET /api/briefing, POST /api/briefing/generate (only if today's is missing, one at a time, not again for 10 minutes after a failure), GET and POST /api/chat. The verdict is part of GET /api/today. All need the session, and POST needs CSRF.
-- Every model call passes aiGate first (key set, month spend under AI_MONTHLY_CAP_GBP) and writes an ai_usage row after. The AI module imports no executor, no proposal function and no Garmin client.
+- 4b (D42, D43): races/leadup.ts (the race lead-up, pure, no AI), races/data.ts getLeadUp, GET /api/leadup?race=KEY (races module, reads only). ai/review.ts, ai/debrief.ts, ai/store.ts (ai_text), ai/coaching.ts (the training-advice note), ai/proposal-tools.ts. AI routes: GET and POST /api/review, GET /api/debriefs?ids=, POST /api/debrief. Jobs: briefing 06:30, weekly review Sunday 19:00 (Europe/London). After a sync that fetched anything the Garmin module calls onSynced, which writes missing debriefs for runs from the last two days (at most three, quiet when AI is off or at the cap).
+- The lead-up needs no model: it counts what Garmin holds. Nothing in the API produces a suggested number, target or advice (D42).
+- Proposal tools: propose_reschedule and propose_unschedule are offered to Ask only while AI_PROPOSALS and PULSE_GARMIN_WRITES are both on (both default off). With either off no proposal is created. They call proposeReschedule and proposeUnschedule in proposals/engine.ts with created_by ai, which only insert a pending proposal. proposal-tools.ts is the only AI file that imports proposal code, and no AI file imports an executor, the confirm route or a Garmin client (a test scans for this).
+- Every model call passes aiGate first (key set, month spend under AI_MONTHLY_CAP_GBP) and writes an ai_usage row after. The AI module imports no executor, no confirm route and no Garmin client. Its only proposal import is the engine creators in proposal-tools.ts.
 
 ## App updates (tooling, D39)
 - Build identity: CI stamps GIT_SHA and BUILD_TIME into the image (build args, the OCI revision and created labels, and env PULSE_BUILD_SHA and PULSE_BUILD_TIME). GET /api/health/version returns { sha, shortSha, builtAt } with no session needed and no secret. "dev" and null outside CI. The sync sheet and Settings show "Build cc3b793, built dd/mm/yyyy HH:mm".

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const AI_OFF_TEXT = "AI is off";
-export const AI_BUDGET_TEXT = "Monthly AI budget reached";
+export const AI_BUDGET_TEXT = "AI cap reached for this month";
 export const HEALTH_NOTE = "If you are ill, in pain or injured, rest and see a doctor or physio. This is not medical advice.";
 
 export const verdictStateSchema = z.enum(["go", "easier", "swap", "rest", "unknown"]);
@@ -52,6 +52,8 @@ export const aiStatusSchema = z.object({
     byFeature: z.array(z.object({ feature: z.string(), calls: z.number(), costGbp: z.number() })),
   }),
   pricing: z.object({ checkedOn: z.string(), usdToGbp: z.number(), models: z.array(z.string()) }),
+  /** AI_PROPOSALS. While off, Ask has no propose tools and no AI proposal can be created. */
+  proposals: z.boolean(),
 });
 export type AiStatus = z.infer<typeof aiStatusSchema>;
 
@@ -100,3 +102,24 @@ export const chatRequestSchema = z.object({
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 
 export const MAX_TOOL_CALLS = 8;
+
+/** Weekly review, cached per week (Monday date) in ai_text. */
+export const reviewSchema = z.object({ week: z.string(), text: z.string(), generatedAt: z.string(), model: z.string(), coversUntil: z.string() });
+export type Review = z.infer<typeof reviewSchema>;
+export const reviewResponseSchema = z.object({
+  state: aiStateSchema,
+  message: z.string().nullable(),
+  review: reviewSchema.nullable(),
+  /** False for a week that has not started yet. */
+  canWrite: z.boolean(),
+  failed: z.boolean(),
+});
+export type ReviewResponse = z.infer<typeof reviewResponseSchema>;
+
+/** Post-run debrief, cached per activity id in ai_text. */
+export const debriefSchema = z.object({ activityId: z.string(), text: z.string(), generatedAt: z.string(), model: z.string() });
+export type Debrief = z.infer<typeof debriefSchema>;
+export const debriefsResponseSchema = z.object({ state: aiStateSchema, message: z.string().nullable(), debriefs: z.record(z.string(), debriefSchema) });
+export type DebriefsResponse = z.infer<typeof debriefsResponseSchema>;
+export const debriefOneResponseSchema = z.object({ state: aiStateSchema, message: z.string().nullable(), debrief: debriefSchema.nullable(), failed: z.boolean() });
+export type DebriefOneResponse = z.infer<typeof debriefOneResponseSchema>;

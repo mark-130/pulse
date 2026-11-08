@@ -71,7 +71,7 @@ export function mockWriter(): MockWriter {
   };
 }
 
-export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date; writes?: boolean; env?: Record<string, string>; llm?: LlmClient; logDestination?: DestinationStream; fetchFn?: typeof fetch } = {}) {
+export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date; writes?: boolean; env?: Record<string, string>; llm?: LlmClient; logDestination?: DestinationStream; fetchFn?: typeof fetch; autoDebrief?: boolean } = {}) {
   const password = "pw";
   const config = loadConfig({
     NODE_ENV: "test",
@@ -85,7 +85,10 @@ export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Da
   const handle = openDb(config.DATA_DIR);
   const fake = fakeGarmin(opts.fake);
   const log = opts.logDestination ? createLogger("info", opts.logDestination) : createLogger("silent");
-  const mod = createGarminModule({ db: handle.db, sqlite: handle.sqlite, config, connect: fake.connect, notify: async () => undefined, log, now: opts.clock, sleep: async () => undefined, onWorkoutsSynced: (n) => void verifyApplied(handle.db, n) });
+  const aiNow = opts.clock ?? (() => new Date());
+  const llm = opts.llm ?? null;
+  const ai = createAiModule({ db: handle.db, config, llm: aiConfigured(config) ? llm : null, log, now: aiNow });
+  const mod = createGarminModule({ db: handle.db, sqlite: handle.sqlite, config, connect: fake.connect, notify: async () => undefined, log, now: opts.clock, sleep: async () => undefined, onWorkoutsSynced: (n) => void verifyApplied(handle.db, n), onSynced: opts.autoDebrief ? () => void ai.afterSync() : undefined });
   const writer = mockWriter();
   // No test reaches the network: the default fetch fails loudly.
   const fetchFn: typeof fetch = opts.fetchFn ?? (async () => { throw new Error("network is not available in tests"); });
@@ -94,9 +97,6 @@ export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Da
   const backupCalls: string[] = [];
   const app0 = { service: updateService, watchtowerUrl: config.WATCHTOWER_URL, token: config.WATCHTOWER_TOKEN, backup: () => { const f = runBackup(handle.sqlite, config.DATA_DIR, opts.clock?.()); backupCalls.push(f); return f; }, fetchFn };
   const proposals = createProposalsModule({ db: handle.db, connect: fake.connect, getWriter: writer.factory, writesEnabled: opts.writes ?? false, app: app0, log, now: opts.clock });
-  const aiNow = opts.clock ?? (() => new Date());
-  const llm = opts.llm ?? null;
-  const ai = createAiModule({ db: handle.db, config, llm: aiConfigured(config) ? llm : null, log, now: aiNow });
   const app = createApp({ config, log, modules: [mod.module, updateModule, createRacesModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
   const login = await req(app, "/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
   const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";

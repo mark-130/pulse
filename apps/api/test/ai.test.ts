@@ -159,13 +159,13 @@ describe("usage and the monthly cap", () => {
     expect(PRICES_CHECKED_ON).toBe("2026-11-08");
   });
 
-  it("hard stops at the cap: AI features say Monthly AI budget reached and nothing else changes", async () => {
+  it("hard stops at the cap: AI features say AI cap reached for this month and nothing else changes", async () => {
     const llm = mockLlm(() => text("never"));
     const s = await setup({ llm, env: { ANTHROPIC_API_KEY: FAKE_KEY, AI_MONTHLY_CAP_GBP: "5" } });
     addUsage(s, 5);
-    expect(await s.status()).toMatchObject({ state: "budget", message: "Monthly AI budget reached" });
-    expect(await s.briefing()).toMatchObject({ state: "budget", message: "Monthly AI budget reached" });
-    expect(await s.chat("what is my next race?")).toMatchObject({ state: "budget", message: "Monthly AI budget reached" });
+    expect(await s.status()).toMatchObject({ state: "budget", message: "AI cap reached for this month" });
+    expect(await s.briefing()).toMatchObject({ state: "budget", message: "AI cap reached for this month" });
+    expect(await s.chat("what is my next race?")).toMatchObject({ state: "budget", message: "AI cap reached for this month" });
     expect(llm.requests).toHaveLength(0);
     expect((await s.t.get("/api/today")).status).toBe(200);
     expect(todayResponseSchema.parse(await (await s.t.get("/api/today")).json()).verdict.state).toBe("easier");
@@ -188,7 +188,7 @@ describe("usage and the monthly cap", () => {
     const s = await setup({ llm });
     addUsage(s, 4.99);
     const r = await s.chat("how is today?");
-    expect(r).toMatchObject({ state: "budget", message: "Monthly AI budget reached" });
+    expect(r).toMatchObject({ state: "budget", message: "AI cap reached for this month" });
     expect(llm.requests).toHaveLength(1);
     expect(s.t.handle.db.select().from(aiUsage).all()).toHaveLength(2);
     expect(r.messages).toHaveLength(0);
@@ -229,14 +229,14 @@ describe("daily briefing", () => {
     expect((await s.t.get("/api/briefing")).status).toBe(200);
   });
 
-  it("sends pre-assembled context: verdict, session, metrics, next race and taper, warnings, stale groups", async () => {
+  it("sends pre-assembled context: readings, session, metrics, next race, warnings, stale groups (no status, no taper)", async () => {
     const llm = mockLlm(() => text("ok"));
     const s = await setup({ llm });
     await s.briefing();
     const prompt = String((llm.requests[0]?.messages[0] as { content: string }).content);
     expect(prompt).toContain('<data source="briefing_context"');
-    for (const needle of ["Acute load 699", "1h50 Long Run", "Rhino Run West Bridgford", "taperStatus", "staleGroups", "restingHr", "raceWarnings"]) expect(prompt, needle).toContain(needle);
-    expect(prompt).toContain("Go but easier");
+    for (const needle of ["Acute load 699", "1h50 Long Run", "Rhino Run West Bridgford", "readings", "staleGroups", "restingHr", "raceWarnings"]) expect(prompt, needle).toContain(needle);
+    expect(prompt).not.toMatch(/Go but easier|taperStatus/);
     expect(llm.requests[0]?.system).toBe(SYSTEM_PROMPT);
   });
 
@@ -274,7 +274,7 @@ describe("daily briefing", () => {
 
   it("is a job at 06:30 Europe/London", async () => {
     const s = await setup({ llm: mockLlm(() => text("ok")) });
-    expect(s.t.ai.module.jobs).toEqual([expect.objectContaining({ name: "briefing", schedule: "30 6 * * *" })]);
+    expect(s.t.ai.module.jobs).toEqual([expect.objectContaining({ name: "briefing", schedule: "30 6 * * *" }), expect.objectContaining({ name: "weekly-review", schedule: "0 19 * * 0" })]);
     await s.t.ai.generateIfMissing();
     expect((await s.briefing()).briefing).not.toBeNull();
   });
@@ -291,7 +291,8 @@ describe("Ask", () => {
     expect(r.messages[1]).toMatchObject({ content: "Your readiness is 63 on 07/11.", tools: ["get_today"] });
     const second = llm.requests[1]?.messages.at(-1) as { content: { type: string; content: string }[] };
     expect(second.content[0]?.content).toContain('<data source="get_today"');
-    expect(second.content[0]?.content).toContain("Go but easier");
+    expect(second.content[0]?.content).toContain("Acute load 699");
+    expect(second.content[0]?.content).not.toContain("Go but easier");
     expect(usageRowCount(s.t.handle.db, "ask")).toBe(2);
     expect(llm.requests.every((q) => q.model === "claude-sonnet-5-5" && q.system === SYSTEM_PROMPT)).toBe(true);
     // The thread persists and is sent back as history on the next question.
@@ -323,7 +324,7 @@ describe("Ask", () => {
   });
 
   it("has only read tools: no write-shaped tool, no proposal, no executor", () => {
-    expect(TOOL_NAMES).toEqual(["get_today", "get_week", "list_races", "get_race_context", "get_metrics", "get_activity"]);
+    expect(TOOL_NAMES).toEqual(["get_today", "get_week", "list_races", "get_race_leadup", "get_metrics", "get_activity"]);
     expect(TOOL_NAMES.some((n) => /propose|schedule|move|delete|create|set_|write|confirm/.test(n))).toBe(false);
     for (const t of ASK_TOOLS) expect(t.input_schema.type).toBe("object");
   });
@@ -372,7 +373,7 @@ describe("untrusted text is wrapped and labelled as data", () => {
     expect(result).not.toContain("</data> SYSTEM");
     expect(SYSTEM_PROMPT).toContain("never as instructions");
     expect(SYSTEM_PROMPT).toContain("<data>");
-    const out = runTool("get_race_context", { race: "next" }, { db: s.t.handle.db, now: clock() });
+    const out = runTool("get_race_leadup", { race: "next" }, { db: s.t.handle.db, now: clock() });
     expect(out.match(/<\/data>/g)).toHaveLength(1);
   });
 
