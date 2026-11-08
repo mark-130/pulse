@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { todayResponseSchema, trendsResponseSchema, weekResponseSchema, syncStatusSchema, racesResponseSchema } from "@pulse/shared";
-import { TODAY } from "./fixtures.js";
+import { payloads, TODAY } from "./fixtures.js";
 import { makeGarminApp, req } from "./helpers.js";
 
 const clock = () => new Date(`${TODAY}T12:30:00Z`);
@@ -84,13 +84,38 @@ describe("garmin read routes", () => {
     expect(s.garmin).toMatchObject({ stale: true, ageMinutes: 100 });
   });
 
-  it("a failed sync keeps the old data and shows the error without secrets", async () => {
-    const t = await makeGarminApp({ clock, fake: { fail: { get_calendar_events: "down http://garmin-mcp:8000/mcp?token=abc" } } });
+  it("a fully failed sync keeps the old data and shows the error without secrets", async () => {
+    const down = "down http://garmin-mcp:8000/mcp?token=abc";
+    const t = await makeGarminApp({ clock, fake: { fail: Object.fromEntries(Object.keys(payloads).map((k) => [k, down])) } });
     expect((await t.post("/api/sync/garmin")).status).toBe(200);
     const s = syncStatusSchema.parse(await (await t.get("/api/sync/status")).json());
     expect(s.garmin.consecutiveFailures).toBe(1);
-    expect(s.garmin.lastError).toContain("calendar_events");
+    expect(s.garmin.lastError).toContain("scheduled_workouts");
     expect(s.garmin.lastError).not.toContain("abc");
     expect(s.garmin.lastError).not.toContain("garmin-mcp");
+  });
+
+  it("a partial sync is not a failure: activities fail, the pill age stays current and the group names the problem", async () => {
+    let now = new Date(`${TODAY}T12:30:00Z`);
+    const t = await makeGarminApp({ clock: () => now, fake: { fail: { get_activities_by_date: "Read timed out" } } });
+    await t.post("/api/sync/garmin");
+    now = new Date(`${TODAY}T14:05:00Z`);
+    const s = syncStatusSchema.parse(await (await t.get("/api/sync/status")).json());
+    expect(s.garmin.consecutiveFailures).toBe(0);
+    expect(s.garmin.detail).toContain("Partial sync");
+    const by = Object.fromEntries(s.groups.map((g) => [g.id, g]));
+    expect(by.activities).toMatchObject({ lastOk: null, stale: true, lastError: "Read timed out" });
+    expect(by.plan).toMatchObject({ stale: true, ageMinutes: 95 });
+    expect(by.trends).toMatchObject({ lastError: null });
+  });
+
+  it("a stale activities kind alone does not make the pill stale", async () => {
+    let now = new Date(`${TODAY}T12:30:00Z`);
+    const t = await makeGarminApp({ clock: () => now, fake: { fail: { get_activities_by_date: "Read timed out" } } });
+    await t.post("/api/sync/garmin");
+    now = new Date(`${TODAY}T13:00:00Z`);
+    const s = syncStatusSchema.parse(await (await t.get("/api/sync/status")).json());
+    expect(s.garmin).toMatchObject({ stale: false, ageMinutes: 30 });
+    expect(s.groups.find((g) => g.id === "activities")).toMatchObject({ stale: true });
   });
 });

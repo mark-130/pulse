@@ -33,8 +33,10 @@ Single user. Password checked against a scrypt hash (salt:hash in hex) in PULSE_
 ## Sync
 - Each module job writes snapshots. Garmin every 30 minutes with backoff, covering workouts, metrics and the race calendar. Phase 5 adds Google incremental sync with syncToken, full resync on 410.
 - UI reads the database only, never live upstream calls per page view.
-- Garmin failures back off 30, 60, 120 then 240 minutes. A run counts as failed only if scheduled workouts, calendar events or activities fail. Other failures are kept as a note.
-- Stale means no successful Garmin sync for more than 90 minutes. The banner and the header pill show it on every screen.
+- Partial success (D27): every kind is stored on its own and records its own outcome in sync_state under garmin:<task> (last_ok, last_error, consecutive_failures), alongside the raw snapshot with its own fetched_at. A failure in one kind never discards or blocks the others. A run where some kinds fail is partial: the job counts as ok and keeps a note. A run counts as failed only if nothing could be fetched (or Garmin cannot be reached). Only failed runs back off 30, 60, 120 then 240 minutes and count towards the ntfy alert.
+- Retry: a timeout-type error (timed out, ETIMEDOUT, ECONNRESET) on one call is retried inside the job, twice, after 10 seconds and then 30 seconds. Other errors are not retried. After two calls in one run have used up their retries, later calls are not retried, so a dead upstream cannot stall the job.
+- Freshness groups (GARMIN_GROUPS in packages/shared): plan (scheduled workouts, calendar events), readiness (stats, readiness, sleep, HRV, resting HR, body battery), activities, trends. A group is as old as its oldest kind. Stale means older than 90 minutes, or never fetched.
+- The header pill and the full banner use the oldest of plan and readiness. A stale activities or trends group alone never shows the full banner. It shows a quiet inline note on the cards that use it. Cards show the sync time of the groups they use.
 - A future workout that Garmin stops returning is removed. Past workouts, activities and raw snapshots are kept as history. Races Garmin stops returning are marked inactive.
 - Nightly backup at 03:10 Europe/London: VACUUM INTO /data/backups/pulse-YYYYMMDD-HHmm.db, newest 7 kept.
 - Offline: the service worker keeps the last good response of the read endpoints in the pulse-api cache (network first). Sign out deletes that cache.

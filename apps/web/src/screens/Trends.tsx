@@ -1,3 +1,4 @@
+import { KindNote } from "@/components/KindNote";
 import type { ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import type { TrendsResponse } from "@pulse/shared";
@@ -28,7 +29,13 @@ function Empty() {
 
 function Trends({ t }: { t: TrendsResponse }) {
   const load = t.trainingLoad.filter((p) => p.atl !== null || p.ctl !== null);
-  const synced = <p className="t-label mt-2">{t.syncedAt ? `Garmin synced ${formatTime(t.syncedAt)}` : "Not synced yet"}</p>;
+  const synced = (
+    <>
+      <p className="t-label mt-2">{t.syncedAt ? `Garmin synced ${formatTime(t.syncedAt)}` : "Not synced yet"}</p>
+      <KindNote group="trends" />
+      <KindNote group="activities" />
+    </>
+  );
   const lastLoad = load[load.length - 1];
   const lastVo2 = t.vo2max[t.vo2max.length - 1];
   return (

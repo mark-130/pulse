@@ -55,10 +55,35 @@ export const jobStatusSchema = z.object({
 });
 export type JobStatus = z.infer<typeof jobStatusSchema>;
 
+/** Garmin data is synced per kind. Kinds are grouped by the screens that need them. */
+export const GARMIN_GROUPS = [
+  { id: "plan", label: "the plan", plural: false, critical: true, tasks: ["scheduled_workouts", "calendar_events"] },
+  { id: "readiness", label: "readiness", plural: false, critical: true, tasks: ["stats", "training_readiness", "sleep", "hrv", "rhr", "body_battery"] },
+  { id: "activities", label: "activities", plural: true, critical: false, tasks: ["activities"] },
+  { id: "trends", label: "trends", plural: true, critical: false, tasks: ["training_status", "training_load_balance", "training_load_trend", "vo2max_trend", "endurance_score", "race_predictions"] },
+] as const;
+export type GarminGroupId = (typeof GARMIN_GROUPS)[number]["id"];
+
+export const groupStatusSchema = z.object({
+  id: z.enum(["plan", "readiness", "activities", "trends"]),
+  label: z.string(),
+  plural: z.boolean(),
+  /** Readiness and plan groups. Stale ones show the full banner. */
+  critical: z.boolean(),
+  /** Oldest successful fetch among the kinds in the group, null if any kind has never succeeded. */
+  lastOk: z.string().nullable(),
+  ageMinutes: z.number().nullable(),
+  stale: z.boolean(),
+  lastError: z.string().nullable(),
+});
+export type GroupStatus = z.infer<typeof groupStatusSchema>;
+
 export const syncStatusSchema = z.object({
   now: z.string(),
   staleAfterMinutes: z.number(),
+  /** lastOk, ageMinutes and stale describe the oldest critical group (plan, readiness). */
   garmin: jobStatusSchema,
+  groups: z.array(groupStatusSchema),
   backup: jobStatusSchema,
 });
 export type SyncStatus = z.infer<typeof syncStatusSchema>;

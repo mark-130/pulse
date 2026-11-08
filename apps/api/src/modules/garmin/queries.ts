@@ -13,12 +13,15 @@ import type {
 import { addDays, daysBetween, londonDate, weekStart } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { activity, garminSnapshot, race, syncState, workout } from "../../db/schema.js";
+import { groupStatuses, oldestOk } from "./freshness.js";
 import * as up from "./upstream.js";
 
 /** Reads the database only. Never calls Garmin. */
 
-export function lastGarminOk(db: Db): string | null {
-  return db.select().from(syncState).where(eq(syncState.job, "garmin")).get()?.lastOk ?? null;
+/** Oldest successful fetch among the given groups. Falls back to the job time for a database from before per-kind tracking. */
+export function lastGarminOk(db: Db, groups: string[] = ["plan", "readiness"]): string | null {
+  const job = db.select().from(syncState).where(eq(syncState.job, "garmin")).get()?.lastOk ?? null;
+  return oldestOk(groupStatuses(db, new Date(), 90), groups, job);
 }
 
 function latestSnapshot<T>(db: Db, kind: string, schema: z.ZodType<T>, today: string): { date: string; data: T } | null {
@@ -170,7 +173,7 @@ export function getWeek(db: Db, now: Date, startParam?: string): WeekResponse {
     start,
     end,
     today,
-    syncedAt: lastGarminOk(db),
+    syncedAt: lastGarminOk(db, ["plan", "activities"]),
     days,
     totals: { distanceM: runs.reduce((s, a) => s + (a.distanceM ?? 0), 0), durationS: runs.reduce((s, a) => s + (a.durationS ?? 0), 0), runs: runs.length },
   };
@@ -195,7 +198,7 @@ export function getTrends(db: Db, now: Date): TrendsResponse {
   }
   const labels: Record<string, string> = { "5K": "5K", "10K": "10K", half_marathon: "Half marathon", marathon: "Marathon" };
   return {
-    syncedAt: lastGarminOk(db),
+    syncedAt: lastGarminOk(db, ["activities", "trends"]),
     trainingLoad: (load?.data.trend ?? []).map((t) => ({ date: t.date, atl: t.atl ?? null, ctl: t.ctl ?? null, acwr: t.acwr ?? null })),
     vo2max: (vo2?.data.trend ?? []).map((t) => ({ date: t.date, value: t.vo2_max })),
     endurance: endurance
@@ -212,5 +215,5 @@ export function getTrends(db: Db, now: Date): TrendsResponse {
 }
 
 export function getRaces(db: Db, now: Date): RacesResponse {
-  return { syncedAt: lastGarminOk(db), races: upcomingRaces(db, londonDate(now)) };
+  return { syncedAt: lastGarminOk(db, ["plan"]), races: upcomingRaces(db, londonDate(now)) };
 }

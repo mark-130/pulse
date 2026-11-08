@@ -1,3 +1,4 @@
+import { KindNote } from "@/components/KindNote";
 import { Activity, Battery, Check, Footprints, Heart, Minus, Moon, Sparkles, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
@@ -86,6 +87,7 @@ function Session({ data }: { data: TodayResponse }) {
       )}
       {!first && next && <p className="mt-3 text-[15px]">Next: {next.name}, {formatDayDate(next.date)}, {formatDurationMin(next.durationS)}.</p>}
       <Synced at={data.syncedAt} />
+      <KindNote group="activities" />
     </section>
   );
 }

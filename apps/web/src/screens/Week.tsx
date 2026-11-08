@@ -2,6 +2,7 @@ import { CalendarClock, ChevronLeft, ChevronRight, Footprints } from "lucide-rea
 import { useSearchParams } from "react-router";
 import type { WeekResponse } from "@pulse/shared";
 import { Chip } from "@/components/Chip";
+import { KindNote } from "@/components/KindNote";
 import { Button } from "@/components/ui";
 import { formatDate, formatDayDate, formatDurationMin, formatKm, formatTime, plural } from "@/lib/format";
 import { useWeek } from "@/lib/queries";
@@ -83,6 +84,7 @@ export function Week() {
               <span className="t-secondary">{plural(w.totals.runs, "run")}</span>
             </p>
             <p className="t-label mt-2">{w.syncedAt ? `Garmin synced ${formatTime(w.syncedAt)}` : "Not synced yet"}</p>
+            <KindNote group="activities" />
           </section>
           <div className="grid gap-3 md:grid-cols-2">
             {w.days.map((d) => <Day key={d.date} day={d} today={w.today} />)}

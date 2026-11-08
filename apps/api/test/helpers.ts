@@ -41,7 +41,7 @@ export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Da
   const handle = openDb(config.DATA_DIR);
   const fake = fakeGarmin(opts.fake);
   const log = createLogger("silent");
-  const mod = createGarminModule({ db: handle.db, sqlite: handle.sqlite, config, connect: fake.connect, notify: async () => undefined, log, now: opts.clock });
+  const mod = createGarminModule({ db: handle.db, sqlite: handle.sqlite, config, connect: fake.connect, notify: async () => undefined, log, now: opts.clock, sleep: async () => undefined });
   const app = createApp({ config, log, modules: [mod.module] });
   const login = await req(app, "/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
   const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";

@@ -4,7 +4,8 @@ import { addDays, londonDate, normaliseTitle } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { activity, garminSnapshot, race, workout } from "../../db/schema.js";
 import { sanitiseError } from "../../notify.js";
-import type { GarminConnector, GarminReadTool, GarminSession } from "./client.js";
+import { recordKind } from "./freshness.js";
+import type { GarminConnector, GarminReadTool, GarminResult, GarminSession } from "./client.js";
 import * as up from "./upstream.js";
 
 export interface SyncTaskResult {
@@ -15,8 +16,28 @@ export interface SyncTaskResult {
 }
 
 export interface SyncResult {
+  /** At least one kind was fetched. A run where some kinds failed is partial, not failed. */
   ok: boolean;
+  /** Some kinds failed and some succeeded. */
+  partial: boolean;
   tasks: SyncTaskResult[];
+}
+
+/** Waits before the first and second retry of a timed out call. */
+export const RETRY_WAITS_MS = [10_000, 30_000] as const;
+/** After this many calls give up on retries in one run, stop retrying so a dead upstream does not stall the job. */
+const MAX_EXHAUSTED_RETRIES = 2;
+
+export function isTimeoutError(text: string): boolean {
+  return /timed?[ -]?out|ETIMEDOUT|ECONNRESET/i.test(text);
+}
+
+type Sleep = (ms: number) => Promise<void>;
+const realSleep: Sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+interface RetryState {
+  sleep: Sleep;
+  exhausted: number;
 }
 
 interface Task<T> {
@@ -184,12 +205,34 @@ function buildTasks(today: string, backfill: boolean): Task<unknown>[] {
   return tasks;
 }
 
-async function runTask(session: GarminSession, task: Task<unknown>, ctx: Ctx): Promise<SyncTaskResult> {
+/** One call, retried up to twice if it fails with a timeout-type error. */
+async function callWithRetry(session: GarminSession, tool: GarminReadTool, args: Record<string, unknown>, retry: RetryState): Promise<GarminResult> {
+  for (let attempt = 0; ; attempt++) {
+    let failure: string;
+    try {
+      const res = await session.call(tool, args);
+      if (res.kind !== "message" || /^no\b/i.test(res.text.trim()) || !isTimeoutError(res.text)) return res;
+      failure = res.text;
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      if (!isTimeoutError(text)) throw err;
+      failure = text;
+    }
+    const wait = RETRY_WAITS_MS[attempt];
+    if (wait === undefined || retry.exhausted >= MAX_EXHAUSTED_RETRIES) {
+      if (wait === undefined) retry.exhausted++;
+      return { kind: "message", text: failure };
+    }
+    await retry.sleep(wait);
+  }
+}
+
+async function runTask(session: GarminSession, task: Task<unknown>, ctx: Ctx, retry: RetryState): Promise<SyncTaskResult> {
   const base = { name: task.name, essential: task.essential ?? false };
   try {
     let any = false;
     for (let page = 0; page < (task.paged ? 6 : 1); page++) {
-      const res = await session.call(task.tool, task.paged ? { ...task.args, page } : task.args);
+      const res = await callWithRetry(session, task.tool, task.paged ? { ...task.args, page } : task.args, retry);
       if (res.kind === "message") {
         // The Garmin MCP server reports some upstream errors as plain text, not as a tool error.
         if (/^no\b/i.test(res.text.trim())) break;
@@ -212,7 +255,7 @@ async function runTask(session: GarminSession, task: Task<unknown>, ctx: Ctx): P
 }
 
 /** One read-only pass over Garmin. Never throws for a single failed call. Throws only if it cannot connect. */
-export async function runGarminSync(deps: { db: Db; connect: GarminConnector; now?: () => Date }): Promise<SyncResult> {
+export async function runGarminSync(deps: { db: Db; connect: GarminConnector; now?: () => Date; sleep?: Sleep }): Promise<SyncResult> {
   const now = (deps.now ?? (() => new Date()))();
   const today = londonDate(now);
   const ctx: Ctx = { db: deps.db, today, nowIso: now.toISOString() };
@@ -220,9 +263,15 @@ export async function runGarminSync(deps: { db: Db; connect: GarminConnector; no
   const session = await deps.connect();
   try {
     const tasks: SyncTaskResult[] = [];
-    for (const task of buildTasks(today, backfill)) tasks.push(await runTask(session, task, ctx));
-    const essentialFailed = tasks.some((t) => t.essential && t.status === "failed");
-    return { ok: !essentialFailed, tasks };
+    const retry: RetryState = { sleep: deps.sleep ?? realSleep, exhausted: 0 };
+    for (const task of buildTasks(today, backfill)) {
+      const result = await runTask(session, task, ctx, retry);
+      // Each kind records its own outcome, so one failure never hides the kinds that worked.
+      recordKind(deps.db, task.name, ctx.nowIso, result.status === "failed" ? (result.error ?? "failed") : null);
+      tasks.push(result);
+    }
+    const failed = tasks.filter((t) => t.status === "failed").length;
+    return { ok: failed < tasks.length, partial: failed > 0 && failed < tasks.length, tasks };
   } finally {
     await session.close().catch(() => undefined);
   }

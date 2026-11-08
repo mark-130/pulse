@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDb } from "../src/db/index.js";
-import { activity, garminSnapshot, race, workout } from "../src/db/schema.js";
+import { activity, garminSnapshot, race, syncState, workout } from "../src/db/schema.js";
 import { runGarminSync } from "../src/modules/garmin/sync.js";
-import { calendarEvents, fakeGarmin, TODAY } from "./fixtures.js";
+import { calendarEvents, fakeGarmin, payloads, TODAY } from "./fixtures.js";
 
 let dir: string;
 let handle: ReturnType<typeof openDb>;
@@ -74,7 +74,7 @@ describe("garmin sync", () => {
 
   it("treats a plain text upstream error as a failure, not as empty", async () => {
     const msg = "Error retrieving training load data for 2026-10-12: Garmin Connect request failed: Read timed out (token=abc)";
-    const res = await runGarminSync({ db: handle.db, connect: fakeGarmin({ messages: { get_training_load_trend: msg } }).connect, now });
+    const res = await runGarminSync({ db: handle.db, connect: fakeGarmin({ messages: { get_training_load_trend: msg } }).connect, now, sleep: async () => undefined });
     const t = res.tasks.find((x) => x.name === "training_load_trend");
     expect(t?.status).toBe("failed");
     expect(t?.error).not.toContain("abc");
@@ -86,7 +86,58 @@ describe("garmin sync", () => {
     expect(optional.ok).toBe(true);
     expect(optional.tasks.find((t) => t.name === "hrv")).toMatchObject({ status: "failed", error: "boom" });
     const essential = await runGarminSync({ db: handle.db, connect: fakeGarmin({ fail: { get_calendar_events: "down" } }).connect, now });
-    expect(essential.ok).toBe(false);
+    expect(essential).toMatchObject({ ok: true, partial: true });
+    const dead = await runGarminSync({ db: handle.db, connect: fakeGarmin({ fail: Object.fromEntries(Object.keys(payloads).map((k) => [k, "down"])) }).connect, now });
+    expect(dead).toMatchObject({ ok: false, partial: false });
+  });
+
+  it("a failed activities call does not discard or block the other kinds", async () => {
+    const res = await runGarminSync({ db: handle.db, connect: fakeGarmin({ fail: { get_activities_by_date: "boom" } }).connect, now });
+    expect(res).toMatchObject({ ok: true, partial: true });
+    const kinds = handle.db.select().from(garminSnapshot).all().map((r) => r.kind);
+    expect(kinds).toEqual(expect.arrayContaining(["scheduled_workouts", "training_readiness", "sleep", "hrv", "training_load_trend"]));
+    expect(handle.db.select().from(workout).all()).toHaveLength(1);
+    const rows = Object.fromEntries(handle.db.select().from(syncState).all().map((r) => [r.job, r]));
+    expect(rows["garmin:activities"]).toMatchObject({ lastOk: null, lastError: "boom", consecutiveFailures: 1 });
+    expect(rows["garmin:sleep"]).toMatchObject({ lastOk: now().toISOString(), lastError: null });
+  });
+
+  it("retries a timed out call and succeeds on the second attempt", async () => {
+    const waits: number[] = [];
+    let n = 0;
+    const base = fakeGarmin();
+    const connect: typeof base.connect = async () => {
+      const s = await base.connect();
+      return {
+        close: () => s.close(),
+        call: async (tool, args) => {
+          if (tool === "get_activities_by_date" && n++ === 0) throw new Error("Read timed out. (read timeout=15)");
+          return s.call(tool, args);
+        },
+      };
+    };
+    const res = await runGarminSync({ db: handle.db, connect, now, sleep: async (ms) => void waits.push(ms) });
+    expect(res.tasks.find((t) => t.name === "activities")?.status).toBe("ok");
+    expect(res.partial).toBe(false);
+    expect(waits).toEqual([10_000]);
+    expect(handle.db.select().from(activity).all().length).toBeGreaterThan(0);
+  });
+
+  it("gives up after two retries with waits of 10 and 30 seconds, then counts the failure", async () => {
+    const waits: number[] = [];
+    const fake = fakeGarmin({ messages: { get_sleep_summary: "Error retrieving sleep: Read timed out" } });
+    const res = await runGarminSync({ db: handle.db, connect: fake.connect, now, sleep: async (ms) => void waits.push(ms) });
+    expect(waits).toEqual([10_000, 30_000]);
+    expect(fake.calls.filter((c) => c.tool === "get_sleep_summary")).toHaveLength(3);
+    expect(res.tasks.find((t) => t.name === "sleep")?.status).toBe("failed");
+  });
+
+  it("does not retry errors that are not timeouts", async () => {
+    const waits: number[] = [];
+    const fake = fakeGarmin({ fail: { get_hrv_data: "bad request" } });
+    await runGarminSync({ db: handle.db, connect: fake.connect, now, sleep: async (ms) => void waits.push(ms) });
+    expect(waits).toEqual([]);
+    expect(fake.calls.filter((c) => c.tool === "get_hrv_data")).toHaveLength(1);
   });
 
   it("reports an unexpected payload shape as a failure without storing it", async () => {

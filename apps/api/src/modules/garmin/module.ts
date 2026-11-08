@@ -10,6 +10,7 @@ import type { Logger } from "../../logger.js";
 import type { Notifier } from "../../notify.js";
 import type { GarminConnector } from "./client.js";
 import { getRaces, getToday, getTrends, getWeek } from "./queries.js";
+import { groupStatuses, oldestOk } from "./freshness.js";
 import { runGarminSync } from "./sync.js";
 import { runBackup } from "../system/backup.js";
 import { createTrackedJob, type TrackedJob } from "../system/jobs.js";
@@ -40,6 +41,8 @@ export interface GarminModuleDeps {
   notify: Notifier;
   log: Logger;
   now?: () => Date;
+  /** Test hook for the retry waits. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export function createGarminModule(deps: GarminModuleDeps): { module: Module<Hono>; garmin: TrackedJob; backup: TrackedJob } {
@@ -53,11 +56,11 @@ export function createGarminModule(deps: GarminModuleDeps): { module: Module<Hon
     notify: deps.notify,
     now: clock,
     run: async () => {
-      const result = await runGarminSync({ db, connect: deps.connect, now: clock });
+      const result = await runGarminSync({ db, connect: deps.connect, now: clock, sleep: deps.sleep });
       const failed = result.tasks.filter((t) => t.status === "failed");
-      const essential = failed.filter((t) => t.essential);
-      if (essential.length) throw new Error(`Garmin sync failed: ${essential.map((t) => `${t.name} (${t.error})`).join("; ")}`);
-      return { detail: failed.length ? `Optional data failed: ${failed.map((t) => t.name).join(", ")}` : null };
+      // Only a run where nothing could be fetched counts as failed and backs off. Anything less is partial.
+      if (!result.ok) throw new Error(`Garmin sync failed: ${failed.slice(0, 3).map((t) => `${t.name} (${t.error})`).join("; ")}`);
+      return { detail: failed.length ? `Partial sync. Behind: ${failed.map((t) => t.name).join(", ")}` : null };
     },
   });
 
@@ -87,10 +90,16 @@ export function createGarminModule(deps: GarminModuleDeps): { module: Module<Hon
       app.get("/api/races", (c) => c.json(getRaces(db, clock())));
       app.get("/api/sync/status", (c) => {
         const now = clock();
+        const job = jobStatus(db, "garmin", now, GARMIN_STALE_AFTER_MIN);
+        const groups = groupStatuses(db, now, GARMIN_STALE_AFTER_MIN);
+        // The pill and banner age come from the oldest kind that Today and the plan need.
+        const lastOk = oldestOk(groups, ["plan", "readiness"], job.lastOk);
+        const ageMinutes = lastOk ? Math.max(0, Math.round((now.getTime() - Date.parse(lastOk)) / 60_000)) : null;
         const body: SyncStatus = {
           now: now.toISOString(),
           staleAfterMinutes: GARMIN_STALE_AFTER_MIN,
-          garmin: jobStatus(db, "garmin", now, GARMIN_STALE_AFTER_MIN),
+          garmin: { ...job, lastOk, ageMinutes, stale: ageMinutes === null || ageMinutes > GARMIN_STALE_AFTER_MIN },
+          groups: groups ?? [],
           backup: jobStatus(db, "backup", now, BACKUP_STALE_AFTER_MIN),
         };
         return c.json(body);
