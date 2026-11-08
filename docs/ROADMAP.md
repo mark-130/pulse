@@ -13,9 +13,10 @@ Acceptance: the 08/11 long run shows. Races from the Garmin calendar are stored 
 Scope: race_meta table and editing, classification and inference, data quality flags, Unclassified card, taper status, cluster warnings, Races screen. No OAuth.
 Acceptance: all Garmin calendar races appear in their own time zone with distance and inferred priority. Unclassified until set. Antwerp (01:30 Europe/Paris) is flagged unverified and races without a goal time are flagged. Fixtures in TRAINING.md produce the expected flags.
 
-## Phase 3: Proposal engine and writes
+## Phase 3: Proposal engine and writes (signed off 08/11/2026, D40)
 Scope: engine, audit log, Proposals screen, Garmin reschedule, sync-conflict probe.
 Acceptance: a test proves no write path exists outside the engine. Stale-hash test passes. Probe result recorded in DECISIONS.md.
+Status: signed off by Mark after the dry-run checks all passed. The live probe (a real move of one test workout, D34) is still open, so PULSE_GARMIN_WRITES and AI_PROPOSALS both stay off until the result is recorded as a decision.
 
 ## Phase 4: AI (split in two, D36)
 ### Phase 4a: AI foundation

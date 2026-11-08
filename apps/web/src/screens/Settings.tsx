@@ -37,7 +37,7 @@ function AiUsage() {
               {s.month.byFeature.map((f) => <li key={f.feature} className="flex justify-between gap-3"><span className="capitalize">{f.feature}</span><span className="t-secondary">{plural(f.calls, "call")}, {gbp(f.costGbp)}</span></li>)}
             </ul>
           )}
-          <p className="t-label">Prices checked {formatDate(s.pricing.checkedOn)}. Dollars converted at {s.pricing.usdToGbp} to the pound. Set AI_MONTHLY_CAP_GBP and AI_USD_TO_GBP in the stack variables.</p>
+          <p className="t-label">Prices checked {formatDate(s.pricing.checkedOn)}. Rate {s.pricing.usdToGbp}.</p>
         </div>
       )}
     </Card>

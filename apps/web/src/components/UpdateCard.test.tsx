@@ -26,6 +26,14 @@ describe("app update card", () => {
     expect(html).toContain("Check for update");
     expect(html).not.toContain(UPDATE_OFF_TEXT);
     expect(html).not.toMatch(/<button[^>]*\sdisabled=""[^>]*>Update now/);
+    expect(html).toMatch(/<button[^>]*bg-accent[^>]*>Update now/);
+  });
+
+  it("uses the quiet outline style for Update now unless an update is available", () => {
+    const quiet = /<button[^>]*border-border-strong[^>]*>Update now/;
+    expect(render({ build, updatesEnabled: true, check: { ...available, state: "up_to_date", latest: null } })).toMatch(quiet);
+    expect(render({ build, updatesEnabled: true, check: null })).toMatch(quiet);
+    expect(render({ build, updatesEnabled: true, check: available })).not.toMatch(quiet);
   });
 
   it("without a token still shows the build and the check, disables Update now and says why", () => {

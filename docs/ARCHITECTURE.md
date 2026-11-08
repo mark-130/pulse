@@ -55,6 +55,7 @@ Built in Phase 3 (apps/api/src/modules/proposals). Phase 3 covers Garmin only, a
 - Allowlists: Google Calendar writes do not exist until Phase 5, which will define a writable calendar allowlist (likely the app-created "Pulse Training"). Garmin write tools are limited to reschedule_workout and unschedule_workout, named only in executors/garmin.ts. schedule_workout is not built (D32). Home Assistant limited to allowlisted entities, and the domains lock, alarm_control_panel, cover and siren cannot be proposed at all in v1.
 
 ## Sync
+- Windows (D41): scheduled workouts last 3 days plus next 14, activities 3 to 14 days, first backfill 180 days in 14 day windows kept in settings (garmin_backfill), see docs/INTEGRATIONS.md.
 - Each module job writes snapshots. Garmin every 30 minutes with backoff, covering workouts, metrics and the race calendar. Phase 5 adds Google incremental sync with syncToken, full resync on 410.
 - UI reads the database only, never live upstream calls per page view.
 - Partial success (D27): every kind is stored on its own and records its own outcome in sync_state under garmin:<task> (last_ok, last_error, consecutive_failures), alongside the raw snapshot with its own fetched_at. A failure in one kind never discards or blocks the others. A run where some kinds fail is partial: the job counts as ok and keeps a note. A run counts as failed only if nothing could be fetched (or Garmin cannot be reached). Only failed runs back off 30, 60, 120 then 240 minutes and count towards the ntfy alert.

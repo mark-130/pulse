@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { APP_IMAGE, PROPOSAL_EXPIRY_HOURS, isGarminProposal, proposalSchema, type BuildState, type GarminProposal, type Proposal, type WorkoutState } from "@pulse/shared";
+import { APP_IMAGE, PROPOSAL_EXPIRY_HOURS, SCHEDULE_AHEAD_DAYS, isGarminProposal, proposalSchema, type BuildState, type GarminProposal, type Proposal, type WorkoutState } from "@pulse/shared";
 import { addDays, londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { proposal as proposalTable, workout } from "../../db/schema.js";
@@ -165,7 +165,7 @@ export function proposeReschedule(db: Db, scheduledId: string, date: string, now
   const today = londonDate(now);
   if (row.completed) throw new ProposalError("A completed workout cannot be moved.", 400);
   if (row.date < today) throw new ProposalError("A past workout cannot be moved.", 400);
-  if (date < today || date > addDays(today, 90)) throw new ProposalError("Pick a date from today up to 90 days ahead.", 400);
+  if (date < today || date > addDays(today, SCHEDULE_AHEAD_DAYS)) throw new ProposalError(`Pick a date from today up to ${SCHEDULE_AHEAD_DAYS} days ahead.`, 400);
   if (date === row.date) throw new ProposalError("The workout is already on that date.", 400);
   const before = workoutState(row);
   return createProposal(db, { kind: "garmin.reschedule", createdBy: "user", rationale: null, before, after: { ...before, date }, now });

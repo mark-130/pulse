@@ -4,13 +4,16 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDb } from "../src/db/index.js";
-import { activity, garminSnapshot, race, syncState, workout } from "../src/db/schema.js";
-import { runGarminSync } from "../src/modules/garmin/sync.js";
+import { activity, garminSnapshot, race, settings, syncState, workout } from "../src/db/schema.js";
+import { GARMIN_READ_TOOLS, type GarminConnector, type GarminResult } from "../src/modules/garmin/client.js";
+import { BACKFILL_PAUSE_MS, runGarminSync } from "../src/modules/garmin/sync.js";
 import { calendarEvents, fakeGarmin, payloads, TODAY } from "./fixtures.js";
 
 let dir: string;
 let handle: ReturnType<typeof openDb>;
 const now = () => new Date(`${TODAY}T12:30:00Z`);
+/** Tests never wait for the real backfill pause or retry waits unless they pass their own sleep. */
+const run = (o: Parameters<typeof runGarminSync>[0]) => runGarminSync({ sleep: async () => undefined, ...o });
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "pulse-sync-"));
@@ -24,7 +27,7 @@ afterEach(() => {
 describe("garmin sync", () => {
   it("stores races with every field, keyed by uuid or date plus title", async () => {
     const fake = fakeGarmin();
-    const res = await runGarminSync({ db: handle.db, connect: fake.connect, now });
+    const res = await run({ db: handle.db, connect: fake.connect, now });
     expect(res.ok).toBe(true);
     const rows = handle.db.select().from(race).all();
     expect(rows).toHaveLength(calendarEvents.length);
@@ -36,11 +39,11 @@ describe("garmin sync", () => {
   });
 
   it("is idempotent, keeps first_seen and marks races Garmin stops returning as inactive", async () => {
-    await runGarminSync({ db: handle.db, connect: fakeGarmin().connect, now });
+    await run({ db: handle.db, connect: fakeGarmin().connect, now });
     const before = handle.db.select().from(race).where(eq(race.eventKey, "2026-11-14|rhino run west bridgford")).get();
     const later = () => new Date("2026-11-07T13:30:00Z");
     const fewer = { count: 4, events: calendarEvents.filter((e) => !e.title.startsWith("Rhino")) };
-    await runGarminSync({ db: handle.db, connect: fakeGarmin({ overrides: { get_calendar_events: fewer } }).connect, now: later });
+    await run({ db: handle.db, connect: fakeGarmin({ overrides: { get_calendar_events: fewer } }).connect, now: later });
     const rows = handle.db.select().from(race).all();
     expect(rows).toHaveLength(calendarEvents.length);
     const rhino = rows.find((r) => r.title.startsWith("Rhino"));
@@ -50,8 +53,8 @@ describe("garmin sync", () => {
   });
 
   it("stores workouts and activities, snapshots raw payloads once per day", async () => {
-    await runGarminSync({ db: handle.db, connect: fakeGarmin().connect, now });
-    await runGarminSync({ db: handle.db, connect: fakeGarmin().connect, now });
+    await run({ db: handle.db, connect: fakeGarmin().connect, now });
+    await run({ db: handle.db, connect: fakeGarmin().connect, now });
     expect(handle.db.select().from(workout).all()).toMatchObject([{ garminScheduledId: "1833019748", date: "2026-11-08", name: "1h50 Long Run", durationS: 6600, completed: false }]);
     expect(handle.db.select().from(activity).all()).toHaveLength(3);
     const snaps = handle.db.select().from(garminSnapshot).all();
@@ -60,21 +63,21 @@ describe("garmin sync", () => {
   });
 
   it("drops a future workout Garmin no longer returns but keeps past ones", async () => {
-    await runGarminSync({ db: handle.db, connect: fakeGarmin().connect, now });
+    await run({ db: handle.db, connect: fakeGarmin().connect, now });
     handle.db.insert(workout).values({ garminScheduledId: "old", date: "2026-11-02", name: "Past", durationS: 1, completed: true, firstSeen: "x", lastSeen: "x" }).run();
-    await runGarminSync({ db: handle.db, connect: fakeGarmin({ overrides: { get_scheduled_workouts: { scheduled_workouts: [] } } }).connect, now });
+    await run({ db: handle.db, connect: fakeGarmin({ overrides: { get_scheduled_workouts: { scheduled_workouts: [] } } }).connect, now });
     expect(handle.db.select().from(workout).all().map((w) => w.garminScheduledId)).toEqual(["old"]);
   });
 
   it("treats a no data message as empty, not as a failure", async () => {
-    const res = await runGarminSync({ db: handle.db, connect: fakeGarmin({ empty: ["get_sleep_summary"] }).connect, now });
+    const res = await run({ db: handle.db, connect: fakeGarmin({ empty: ["get_sleep_summary"] }).connect, now });
     expect(res.ok).toBe(true);
     expect(res.tasks.find((t) => t.name === "sleep")?.status).toBe("empty");
   });
 
   it("treats a plain text upstream error as a failure, not as empty", async () => {
     const msg = "Error retrieving training load data for 2026-10-12: Garmin Connect request failed: Read timed out (token=abc)";
-    const res = await runGarminSync({ db: handle.db, connect: fakeGarmin({ messages: { get_training_load_trend: msg } }).connect, now, sleep: async () => undefined });
+    const res = await run({ db: handle.db, connect: fakeGarmin({ messages: { get_training_load_trend: msg } }).connect, now, sleep: async () => undefined });
     const t = res.tasks.find((x) => x.name === "training_load_trend");
     expect(t?.status).toBe("failed");
     expect(t?.error).not.toContain("abc");
@@ -82,17 +85,17 @@ describe("garmin sync", () => {
   });
 
   it("survives an optional failure but fails when an essential call fails", async () => {
-    const optional = await runGarminSync({ db: handle.db, connect: fakeGarmin({ fail: { get_hrv_data: "boom" } }).connect, now });
+    const optional = await run({ db: handle.db, connect: fakeGarmin({ fail: { get_hrv_data: "boom" } }).connect, now });
     expect(optional.ok).toBe(true);
     expect(optional.tasks.find((t) => t.name === "hrv")).toMatchObject({ status: "failed", error: "boom" });
-    const essential = await runGarminSync({ db: handle.db, connect: fakeGarmin({ fail: { get_calendar_events: "down" } }).connect, now });
+    const essential = await run({ db: handle.db, connect: fakeGarmin({ fail: { get_calendar_events: "down" } }).connect, now });
     expect(essential).toMatchObject({ ok: true, partial: true });
-    const dead = await runGarminSync({ db: handle.db, connect: fakeGarmin({ fail: Object.fromEntries(Object.keys(payloads).map((k) => [k, "down"])) }).connect, now });
+    const dead = await run({ db: handle.db, connect: fakeGarmin({ fail: Object.fromEntries(Object.keys(payloads).map((k) => [k, "down"])) }).connect, now });
     expect(dead).toMatchObject({ ok: false, partial: false });
   });
 
   it("a failed activities call does not discard or block the other kinds", async () => {
-    const res = await runGarminSync({ db: handle.db, connect: fakeGarmin({ fail: { get_activities_by_date: "boom" } }).connect, now });
+    const res = await run({ db: handle.db, connect: fakeGarmin({ fail: { get_activities_by_date: "boom" } }).connect, now });
     expect(res).toMatchObject({ ok: true, partial: true });
     const kinds = handle.db.select().from(garminSnapshot).all().map((r) => r.kind);
     expect(kinds).toEqual(expect.arrayContaining(["scheduled_workouts", "training_readiness", "sleep", "hrv", "training_load_trend"]));
@@ -116,7 +119,7 @@ describe("garmin sync", () => {
         },
       };
     };
-    const res = await runGarminSync({ db: handle.db, connect, now, sleep: async (ms) => void waits.push(ms) });
+    const res = await run({ db: handle.db, connect, now, sleep: async (ms) => void (ms !== BACKFILL_PAUSE_MS && waits.push(ms)) });
     expect(res.tasks.find((t) => t.name === "activities")?.status).toBe("ok");
     expect(res.partial).toBe(false);
     expect(waits).toEqual([10_000]);
@@ -126,7 +129,7 @@ describe("garmin sync", () => {
   it("gives up after two retries with waits of 10 and 30 seconds, then counts the failure", async () => {
     const waits: number[] = [];
     const fake = fakeGarmin({ messages: { get_sleep_summary: "Error retrieving sleep: Read timed out" } });
-    const res = await runGarminSync({ db: handle.db, connect: fake.connect, now, sleep: async (ms) => void waits.push(ms) });
+    const res = await run({ db: handle.db, connect: fake.connect, now, sleep: async (ms) => void (ms !== BACKFILL_PAUSE_MS && waits.push(ms)) });
     expect(waits).toEqual([10_000, 30_000]);
     expect(fake.calls.filter((c) => c.tool === "get_sleep_summary")).toHaveLength(3);
     expect(res.tasks.find((t) => t.name === "sleep")?.status).toBe("failed");
@@ -135,24 +138,146 @@ describe("garmin sync", () => {
   it("does not retry errors that are not timeouts", async () => {
     const waits: number[] = [];
     const fake = fakeGarmin({ fail: { get_hrv_data: "bad request" } });
-    await runGarminSync({ db: handle.db, connect: fake.connect, now, sleep: async (ms) => void waits.push(ms) });
+    await run({ db: handle.db, connect: fake.connect, now, sleep: async (ms) => void (ms !== BACKFILL_PAUSE_MS && waits.push(ms)) });
     expect(waits).toEqual([]);
     expect(fake.calls.filter((c) => c.tool === "get_hrv_data")).toHaveLength(1);
   });
 
   it("reports an unexpected payload shape as a failure without storing it", async () => {
-    const res = await runGarminSync({ db: handle.db, connect: fakeGarmin({ overrides: { get_calendar_events: { events: [{ nope: 1 }] } } }).connect, now });
+    const res = await run({ db: handle.db, connect: fakeGarmin({ overrides: { get_calendar_events: { events: [{ nope: 1 }] } } }).connect, now });
     expect(res.tasks.find((t) => t.name === "calendar_events")?.status).toBe("failed");
     expect(handle.db.select().from(race).all()).toHaveLength(0);
   });
 
-  it("only ever calls tools on the read allowlist, with a backfill on the first run", async () => {
+  it("only ever calls tools on the read allowlist, and never a FIT or per-second splits tool", async () => {
     const fake = fakeGarmin();
-    await runGarminSync({ db: handle.db, connect: fake.connect, now });
-    const act = fake.calls.find((c) => c.tool === "get_activities_by_date");
-    expect(act?.args.start_date).toBe("2026-05-11");
-    const second = fakeGarmin();
-    await runGarminSync({ db: handle.db, connect: second.connect, now });
-    expect(second.calls.find((c) => c.tool === "get_activities_by_date")?.args.start_date).toBe("2026-10-24");
+    await run({ db: handle.db, connect: fake.connect, now, sleep: async () => undefined });
+    for (const c of fake.calls) expect(GARMIN_READ_TOOLS as readonly string[]).toContain(c.tool);
+    expect(GARMIN_READ_TOOLS.some((t) => /fit|split/i.test(t))).toBe(false);
+  });
+});
+
+describe("sync windows (D41)", () => {
+  /** Wraps the fake so a test can watch concurrency and answer chosen calls itself. */
+  function watched(answer?: (tool: string, args: Record<string, unknown>) => GarminResult | null) {
+    const fake = fakeGarmin();
+    let inflight = 0;
+    let max = 0;
+    const connect: GarminConnector = async () => {
+      const s = await fake.connect();
+      return {
+        async call(tool, args) {
+          inflight++;
+          max = Math.max(max, inflight);
+          try {
+            return answer?.(tool, args) ?? (await s.call(tool, args));
+          } finally {
+            inflight--;
+          }
+        },
+        close: () => s.close(),
+      };
+    };
+    return { fake, connect, maxInflight: () => max };
+  }
+  const activityCalls = (f: { calls: { tool: string; args: Record<string, unknown> }[] }) => f.calls.filter((c) => c.tool === "get_activities_by_date");
+
+  it("routine sync reads the last 3 days and the next 14 days of scheduled workouts", async () => {
+    const w = watched();
+    await run({ db: handle.db, connect: w.connect, now, sleep: async () => undefined });
+    const sched = w.fake.calls.find((c) => c.tool === "get_scheduled_workouts");
+    expect(sched?.args).toEqual({ start_date: "2026-11-04", end_date: "2026-11-21" });
+  });
+
+  it("does not delete a workout dated beyond the 14 day window", async () => {
+    const w = watched();
+    await run({ db: handle.db, connect: w.connect, now, sleep: async () => undefined });
+    handle.db.insert(workout).values({ garminScheduledId: "far", date: "2026-12-20", name: "Far", firstSeen: "x", lastSeen: "x" }).run();
+    handle.db.insert(workout).values({ garminScheduledId: "near", date: "2026-11-20", name: "Near", firstSeen: "x", lastSeen: "x" }).run();
+    await run({ db: handle.db, connect: w.connect, now, sleep: async () => undefined });
+    const ids = handle.db.select().from(workout).all().map((r) => r.garminScheduledId);
+    expect(ids).toContain("far");
+    expect(ids).not.toContain("near");
+  });
+
+  it("first backfill reads 180 days in 14 day windows, one at a time, with a pause between them", async () => {
+    const w = watched();
+    const waits: number[] = [];
+    const res = await run({ db: handle.db, connect: w.connect, now, sleep: async (ms) => void waits.push(ms) });
+    const windows = activityCalls(w.fake).slice(1); // the first call is the routine window
+    expect(windows).toHaveLength(13);
+    for (const c of windows) expect(Date.parse(`${c.args.end_date}T12:00:00Z`) - Date.parse(`${c.args.start_date}T12:00:00Z`)).toBe(13 * 86_400_000);
+    expect(windows[0]?.args).toMatchObject({ end_date: TODAY });
+    expect(String(windows.at(-1)?.args.start_date) <= "2026-05-12").toBe(true);
+    expect(waits.filter((ms) => ms === BACKFILL_PAUSE_MS)).toHaveLength(12);
+    expect(res.backfill).toEqual({ pending: 0, doneThisRun: 13, failedWindow: null });
+    expect(w.maxInflight()).toBeLessThanOrEqual(2);
+  });
+
+  it("per-day kinds never run more than two calls at a time", async () => {
+    const w = watched();
+    await run({ db: handle.db, connect: w.connect, now, sleep: async () => undefined });
+    expect(w.maxInflight()).toBeLessThanOrEqual(2);
+  });
+
+  it("after the backfill a routine run makes one activities call of 3 to 14 days", async () => {
+    const first = watched();
+    await run({ db: handle.db, connect: first.connect, now, sleep: async () => undefined });
+    const next = watched();
+    const later = () => new Date(`${TODAY}T13:00:00Z`);
+    await run({ db: handle.db, connect: next.connect, now: later, sleep: async () => undefined });
+    const calls = activityCalls(next.fake);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.args.start_date).toBe("2026-11-04");
+  });
+
+  it("widens the routine window to cover a gap, at most 14 days", async () => {
+    const first = watched();
+    await run({ db: handle.db, connect: first.connect, now, sleep: async () => undefined });
+    const next = watched();
+    const after5 = () => new Date(`2026-11-12T12:30:00Z`);
+    await run({ db: handle.db, connect: next.connect, now: after5, sleep: async () => undefined });
+    expect(activityCalls(next.fake)[0]?.args.start_date).toBe("2026-11-06");
+    const after30 = () => new Date(`2026-12-12T12:30:00Z`);
+    const far = watched();
+    await run({ db: handle.db, connect: far.connect, now: after30, sleep: async () => undefined });
+    expect(activityCalls(far.fake)[0]?.args.start_date).toBe("2026-11-28");
+  });
+
+  it("a failed window stops the backfill for this run and is retried on its own next run", async () => {
+    let failFrom: string | null = null;
+    const w = watched((tool, args) => (tool === "get_activities_by_date" && args.start_date === failFrom ? { kind: "message", text: "Error retrieving activities: boom" } : null));
+    // Find the third window's start without hard-coding the dates.
+    const probe = watched();
+    await run({ db: handle.db, connect: probe.connect, now, sleep: async () => undefined });
+    failFrom = String(activityCalls(probe.fake)[3]?.args.start_date); // 0 routine, 1 and 2 done before it
+    handle.db.delete(settings).run();
+    handle.db.delete(activity).run();
+    handle.db.delete(syncState).run();
+    const res = await run({ db: handle.db, connect: w.connect, now, sleep: async () => undefined });
+    expect(res.backfill?.doneThisRun).toBe(2);
+    expect(res.backfill?.failedWindow).toContain(failFrom ?? "");
+    expect(res.backfill?.pending).toBe(11);
+    expect(res.ok).toBe(true);
+    expect(res.partial).toBe(false);
+    failFrom = null;
+    const again = watched();
+    const res2 = await run({ db: handle.db, connect: again.connect, now: () => new Date(`${TODAY}T13:00:00Z`), sleep: async () => undefined });
+    expect(res2.backfill).toEqual({ pending: 0, doneThisRun: 11, failedWindow: null });
+    expect(activityCalls(again.fake)).toHaveLength(12); // routine plus the 11 windows still pending
+  });
+
+  it("does not backfill a database that already holds activities from before this rule", async () => {
+    handle.db.insert(activity).values({ garminActivityId: "old", name: "Old", type: "running", startLocal: "2026-06-01 10:00:00", date: "2026-06-01", firstSeen: "x", lastSeen: "x" }).run();
+    const w = watched();
+    const res = await run({ db: handle.db, connect: w.connect, now, sleep: async () => undefined });
+    expect(activityCalls(w.fake)).toHaveLength(1);
+    expect(res.backfill?.pending).toBe(0);
+  });
+
+  it("stores summaries only: no FIT or per-second payload kinds exist", async () => {
+    const w = watched();
+    await run({ db: handle.db, connect: w.connect, now, sleep: async () => undefined });
+    expect(handle.db.select().from(garminSnapshot).all().some((r) => /fit|split|stream/i.test(r.kind))).toBe(false);
   });
 });

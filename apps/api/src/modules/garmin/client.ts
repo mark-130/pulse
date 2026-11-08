@@ -25,7 +25,6 @@ export const GARMIN_READ_TOOLS = [
   "get_race_predictions",
   "get_activities_by_date",
   "get_activity",
-  "get_activity_splits",
   "get_activity_hr_in_timezones",
   "get_calendar_events",
 ] as const;

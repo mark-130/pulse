@@ -1,10 +1,12 @@
 import { and, gte, lte, notInArray } from "drizzle-orm";
+import { BACKFILL_DAYS, BACKFILL_WINDOW_DAYS, SCHEDULE_AHEAD_DAYS, SCHEDULE_LOOKBACK_DAYS } from "@pulse/shared";
+import { eq } from "drizzle-orm";
 import type { z } from "zod";
 import { addDays, londonDate, normaliseTitle } from "../../dates.js";
 import type { Db } from "../../db/index.js";
-import { activity, garminSnapshot, race, workout } from "../../db/schema.js";
+import { activity, garminSnapshot, race, settings, syncState, workout } from "../../db/schema.js";
 import { sanitiseError } from "../../notify.js";
-import { recordKind } from "./freshness.js";
+import { kindJob, recordKind } from "./freshness.js";
 import type { GarminConnector, GarminReadTool, GarminResult, GarminSession } from "./client.js";
 import * as up from "./upstream.js";
 
@@ -15,7 +17,14 @@ export interface SyncTaskResult {
   error?: string;
 }
 
+/** Pause between backfill windows, so a long first sync does not hammer Garmin. */
+export const BACKFILL_PAUSE_MS = 2_000;
+const ACTIVITY_MIN_DAYS = 3;
+const ACTIVITY_MAX_DAYS = 14;
+
 export interface SyncResult {
+  /** First backfill of activities: how many 14 day windows are still waiting, and whether one failed this run. */
+  backfill?: { pending: number; doneThisRun: number; failedWindow: string | null };
   /** At least one kind was fetched. A run where some kinds failed is partial, not failed. */
   ok: boolean;
   /** Some kinds failed and some succeeded. */
@@ -152,17 +161,17 @@ function applyActivities(data: z.infer<typeof up.activitiesSchema>, ctx: Ctx) {
   }
 }
 
-function buildTasks(today: string, backfill: boolean): Task<unknown>[] {
+function buildTasks(today: string, activityDays: number): Task<unknown>[] {
   const day = { date: today };
   const tasks: Task<unknown>[] = [
     {
       name: "scheduled_workouts",
       essential: true,
       tool: "get_scheduled_workouts",
-      args: { start_date: addDays(today, -14), end_date: addDays(today, 90) },
+      args: { start_date: addDays(today, -SCHEDULE_LOOKBACK_DAYS), end_date: addDays(today, SCHEDULE_AHEAD_DAYS) },
       kind: "scheduled_workouts",
       schema: up.scheduledSchema,
-      apply: (d, c) => applyWorkouts(d as z.infer<typeof up.scheduledSchema>, c, addDays(today, 90)),
+      apply: (d, c) => applyWorkouts(d as z.infer<typeof up.scheduledSchema>, c, addDays(today, SCHEDULE_AHEAD_DAYS)),
     },
     {
       name: "calendar_events",
@@ -178,7 +187,7 @@ function buildTasks(today: string, backfill: boolean): Task<unknown>[] {
       essential: true,
       paged: true,
       tool: "get_activities_by_date",
-      args: { start_date: addDays(today, backfill ? -180 : -14), end_date: today, page_size: 100 },
+      args: { start_date: addDays(today, -activityDays), end_date: today, page_size: 100 },
       schema: up.activitiesSchema,
       apply: (d, c) => applyActivities(d as z.infer<typeof up.activitiesSchema>, c),
     },
@@ -254,24 +263,95 @@ async function runTask(session: GarminSession, task: Task<unknown>, ctx: Ctx, re
   }
 }
 
+interface BackfillWindow {
+  from: string;
+  to: string;
+  done: boolean;
+}
+
+const BACKFILL_KEY = "garmin_backfill";
+
+/**
+ * The 180 day first backfill, in 14 day windows, newest first. The windows are fixed when the backfill starts and
+ * stored in settings, so a window that failed is retried on the next run without redoing the others.
+ * A database that already has activities from before this rule counts as backfilled.
+ */
+function loadBackfill(db: Db, today: string): BackfillWindow[] {
+  const row = db.select().from(settings).where(eq(settings.key, BACKFILL_KEY)).get();
+  if (row) return (row.value as { windows: BackfillWindow[] }).windows;
+  const hasActivities = db.select({ id: activity.garminActivityId }).from(activity).limit(1).all().length > 0;
+  const windows: BackfillWindow[] = [];
+  if (!hasActivities) {
+    for (let i = 0; i * BACKFILL_WINDOW_DAYS < BACKFILL_DAYS; i++) {
+      const to = addDays(today, -i * BACKFILL_WINDOW_DAYS);
+      windows.push({ from: addDays(to, -(BACKFILL_WINDOW_DAYS - 1)), to, done: false });
+    }
+  }
+  saveBackfill(db, windows);
+  return windows;
+}
+
+function saveBackfill(db: Db, windows: BackfillWindow[]): void {
+  db.insert(settings).values({ key: BACKFILL_KEY, value: { windows } }).onConflictDoUpdate({ target: settings.key, set: { value: { windows } } }).run();
+}
+
+async function runBackfill(session: GarminSession, windows: BackfillWindow[], ctx: Ctx, retry: RetryState): Promise<NonNullable<SyncResult["backfill"]>> {
+  let doneThisRun = 0;
+  let failedWindow: string | null = null;
+  for (const w of windows) {
+    if (w.done) continue;
+    if (doneThisRun > 0) await retry.sleep(BACKFILL_PAUSE_MS);
+    const task: Task<unknown> = {
+      name: "activities_backfill",
+      tool: "get_activities_by_date",
+      args: { start_date: w.from, end_date: w.to, page_size: 100 },
+      paged: true,
+      schema: up.activitiesSchema,
+      apply: (d, c) => applyActivities(d as z.infer<typeof up.activitiesSchema>, c),
+    };
+    const result = await runTask(session, task, ctx, retry);
+    if (result.status === "failed") {
+      // Stop for this run. The window stays not done and is tried again on the next run.
+      failedWindow = `${w.from} to ${w.to}`;
+      break;
+    }
+    w.done = true;
+    doneThisRun++;
+    saveBackfill(ctx.db, windows);
+  }
+  return { pending: windows.filter((w) => !w.done).length, doneThisRun, failedWindow };
+}
+
+/** Routine activity window: 3 days, widened to cover a gap since the last good activities sync, at most 14 days. */
+function activityDays(db: Db, now: Date): number {
+  const last = db.select().from(syncState).where(eq(syncState.job, kindJob("activities"))).get()?.lastOk;
+  if (!last) return ACTIVITY_MAX_DAYS;
+  const gap = Math.ceil((now.getTime() - Date.parse(last)) / 86_400_000) + 1;
+  return Math.min(ACTIVITY_MAX_DAYS, Math.max(ACTIVITY_MIN_DAYS, gap));
+}
+
 /** One read-only pass over Garmin. Never throws for a single failed call. Throws only if it cannot connect. */
 export async function runGarminSync(deps: { db: Db; connect: GarminConnector; now?: () => Date; sleep?: Sleep }): Promise<SyncResult> {
   const now = (deps.now ?? (() => new Date()))();
   const today = londonDate(now);
   const ctx: Ctx = { db: deps.db, today, nowIso: now.toISOString() };
-  const backfill = deps.db.select({ id: activity.garminActivityId }).from(activity).limit(1).all().length === 0;
+  // Decided before the routine tasks store any activity, or a first run would look like an old database.
+  const windows = loadBackfill(deps.db, today);
+  const days = activityDays(deps.db, now);
   const session = await deps.connect();
   try {
     const tasks: SyncTaskResult[] = [];
     const retry: RetryState = { sleep: deps.sleep ?? realSleep, exhausted: 0 };
-    for (const task of buildTasks(today, backfill)) {
+    for (const task of buildTasks(today, days)) {
       const result = await runTask(session, task, ctx, retry);
       // Each kind records its own outcome, so one failure never hides the kinds that worked.
       recordKind(deps.db, task.name, ctx.nowIso, result.status === "failed" ? (result.error ?? "failed") : null);
       tasks.push(result);
     }
     const failed = tasks.filter((t) => t.status === "failed").length;
-    return { ok: failed < tasks.length, partial: failed > 0 && failed < tasks.length, tasks };
+    // The backfill runs last and never makes the run partial: a failed window is simply tried again next run.
+    const backfill = await runBackfill(session, windows, ctx, retry);
+    return { ok: failed < tasks.length, partial: failed > 0 && failed < tasks.length, tasks, backfill };
   } finally {
     await session.close().catch(() => undefined);
   }

@@ -158,3 +158,12 @@ export const trendsResponseSchema = z.object({
 });
 export type TrendsResponse = z.infer<typeof trendsResponseSchema>;
 
+
+/**
+ * Garmin sync windows (D41). A routine sync reads the last 3 days and the next 14 days of scheduled workouts.
+ * The first backfill of activities reads 180 days in 14 day windows, one at a time with a short pause.
+ */
+export const SCHEDULE_LOOKBACK_DAYS = 3;
+export const SCHEDULE_AHEAD_DAYS = 14;
+export const BACKFILL_DAYS = 180;
+export const BACKFILL_WINDOW_DAYS = 14;

@@ -6,13 +6,19 @@
 - Read tools by feature:
   - Today: get_scheduled_workouts, get_workout_by_id, get_training_readiness, get_morning_training_readiness, get_sleep_summary, get_hrv_data, get_rhr_day, get_body_battery, get_stats
   - Load and trends: get_training_status, get_training_load_balance, get_training_load_trend, get_vo2max_trend, get_running_tolerance_trend, get_endurance_score, get_race_predictions
-  - History: get_activities_by_date, get_activity, get_activity_splits, get_activity_hr_in_timezones
+  - History: get_activities_by_date, get_activity, get_activity_hr_in_timezones (splits and FIT tools are not on the allowlist, see Sync windows)
   - Races: get_calendar_events (synced by the Phase 1 Garmin job into the race table: title, date, start_time_local, time_zone, distance_m, goal_time_seconds, is_race, primary_event, subscribed, location, url, event_uuid). The Garmin calendar is read only for NGtive Split.
 - Write tools, through proposals only, called only from the Garmin executor (D32). Phase 3 allows reschedule_workout (scheduled_workout_id, calendar_date) and unschedule_workout (scheduled_workout_id). The id is the calendar entry id from get_scheduled_workouts. schedule_workout is not built. Writes are off by default: PULSE_GARMIN_WRITES=on is needed before any call is made, and with it off the confirm flow records a dry run.
 - Never used in v1 (not on any allowlist): delete_*, upload_*, push_workout_to_device, create_* workouts, nutrition, weigh-ins.
 - Phase 0 lists the server's tools and diffs them against this file. Tool names may drift.
 - Verified against the live server on 07/11/2026 (Phase 1): the server returns some upstream failures as plain text, not as a tool error, for example "Error retrieving training load data for ...: Read timed out". Text starting with "No" (no data found) is an empty result. Any other plain text is treated as a failure.
-- get_training_load_trend makes one upstream request per day and times out on long ranges, so the sync asks for 42 days. Ranged tools reject more than 90 days. The calendar accepts a two year range. The first sync backfills 180 days of activities (about one minute), later syncs fetch 14 days.
+- get_training_load_trend makes one upstream request per day and times out on long ranges, so the sync asks for 42 days. Ranged tools reject more than 90 days. The calendar accepts a two year range. Sync windows are set out in the next section.
+- Sync windows (D41), as built:
+  - Scheduled workouts: every routine sync reads the last 3 days and the next 14 days. A future workout in that window that Garmin stops returning is removed, nothing beyond it is touched. Because the app only sees 14 days ahead, a reschedule proposal can only target a date up to 14 days ahead.
+  - Activities: a routine sync reads the last 3 days, widened to cover any gap since the last good activities sync and never more than 14 days, so a missed day heals itself.
+  - First backfill of activities: 180 days in 14 day windows (13 windows), newest first, one at a time with a 2 second pause between them. The windows are fixed when the backfill starts and stored in settings (garmin_backfill). A window that fails stops the backfill for that run and is retried on its own at the next run, without redoing the finished windows. A failed window never makes the run partial. A database that already held activities before this rule counts as backfilled.
+  - Per-day kinds (stats, readiness, sleep, HRV, resting heart rate, body battery) read today only and run one call at a time, which is within the limit of two at a time. Trend kinds use one ranged call each (42 days for load, 83 days for VO2 max and endurance). A call that times out is retried twice (10 s, then 30 s).
+  - Summaries only. The sync stores the summary tools in garmin_snapshot and the activity, workout and race tables. It never fetches or stores FIT files or per-second or per-kilometre splits, and no FIT or splits tool is on the allowlist (a test checks both).
 - Store raw tool output in garmin_snapshot and validate with zod when reading.
 
 ## Google Calendar (Phase 5, scope to be agreed)

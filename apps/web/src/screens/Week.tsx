@@ -2,7 +2,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { SportIcon } from "@/components/SportIcon";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { PLAN_APP_NOTE, PROBE_RESULT_RECORDED, type WeekResponse, type WorkoutItem } from "@pulse/shared";
+import { PLAN_APP_NOTE, PROBE_RESULT_RECORDED, SCHEDULE_AHEAD_DAYS, type WeekResponse, type WorkoutItem } from "@pulse/shared";
 import { Modal } from "@/components/Modal";
 import { Chip } from "@/components/Chip";
 import { KindNote } from "@/components/KindNote";
@@ -20,7 +20,7 @@ function MoveDialog({ workout, onClose, onCreated }: { workout: WorkoutItem | nu
   const create = useCreateProposal();
   const [date, setDate] = useState("");
   const today = new Date().toISOString().slice(0, 10);
-  const max = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+  const max = new Date(Date.now() + SCHEDULE_AHEAD_DAYS * 86_400_000).toISOString().slice(0, 10);
   return (
     <Modal open={workout !== null} onClose={() => { setDate(""); create.reset(); onClose(); }} labelledBy="move-title">
       {workout && (

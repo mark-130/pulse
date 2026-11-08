@@ -75,6 +75,7 @@ export function UpdateCard() {
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" disabled={check.isPending} onClick={() => check.mutate()}>{check.isPending ? "Checking" : "Check for update"}</Button>
             <Button
+              variant={result?.state === "available" ? "primary" : "secondary"}
               disabled={!s?.updatesEnabled || create.isPending}
               onClick={() => create.mutate({ kind: "app.update" }, { onSuccess: (r) => setOpenId(r.proposal.id) })}
             >
