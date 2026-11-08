@@ -4,7 +4,10 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, XAx
 import type { TrendsResponse } from "@pulse/shared";
 import { Button, Card } from "@/components/ui";
 import { formatClock, formatDate, formatTime } from "@/lib/format";
-import { useTrends } from "@/lib/queries";
+import { ageText } from "@/lib/stale";
+import { useTrends, useVo2 } from "@/lib/queries";
+import { notImportedNote, vo2Ranges } from "@/lib/zones";
+import { useEffect, useState } from "react";
 
 const axis = { stroke: "var(--border-strong)", tick: { fill: "var(--muted)", fontSize: 12 } } as const;
 const shortDate = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
@@ -27,6 +30,61 @@ function Empty() {
   return <p className="t-secondary">No data yet. It appears after the first Garmin sync.</p>;
 }
 
+/** VO2 max with range choices. Days Garmin carried forward are drawn lighter. Beyond the stored range it says "Not imported yet". */
+export function Vo2Chart() {
+  const [days, setDays] = useState(90);
+  const q = useVo2(365);
+  const v = q.data;
+  const today = new Date().toISOString().slice(0, 10);
+  const ranges = vo2Ranges(v?.stored?.from ?? null, today);
+  const start = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const points = (v?.points ?? []).filter((p) => p.date >= start);
+  const note = notImportedNote(days, v?.stored?.from ?? null, today);
+  useEffect(() => {
+    if (window.location.hash === "#vo2max") document.getElementById("vo2max")?.scrollIntoView({ block: "start" });
+  }, [v]);
+  return (
+    <section id="vo2max" className="card md:col-span-2 scroll-mt-4" aria-labelledby="vo2-chart-title">
+      <h2 id="vo2-chart-title" className="t-card-title mb-2">VO2 max</h2>
+      <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Range">
+        {ranges.map((r) => (
+          <Button key={r.days} variant={days === r.days ? "primary" : "secondary"} aria-pressed={days === r.days} onClick={() => setDays(r.days)}>{r.label}</Button>
+        ))}
+      </div>
+      {q.isPending && <p className="t-secondary">Loading</p>}
+      {q.isError && !v && <p role="alert" className="text-danger">{q.error.message}</p>}
+      {v && points.length === 0 && <Empty />}
+      {v && points.length > 0 && (
+        <>
+          <p className="t-secondary mb-2">VO2 max in ml/kg/min, Garmin estimate. Lighter points are days Garmin carried forward.{v.current ? ` Latest ${formatDate(v.current.date)}: ${v.current.value}.` : ""}</p>
+          <div role="img" aria-label="Line chart of VO2 max. A table follows." className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={points} margin={{ left: 0, right: 8, top: 8, bottom: 16 }}>
+                <CartesianGrid stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="date" tickFormatter={shortDate} {...axis} label={{ value: "Date (dd/mm)", position: "insideBottom", offset: -4, fill: "var(--muted)", fontSize: 12 }} height={52} />
+                <YAxis domain={["dataMin - 0.5", "dataMax + 0.5"]} {...axis} width={40} tickFormatter={(v: number) => v.toFixed(1)} />
+                <Line
+                  dataKey="value"
+                  stroke="var(--accent)"
+                  strokeOpacity={0.5}
+                  strokeWidth={1.5}
+                  isAnimationActive={false}
+                  dot={(p: { cx?: number; cy?: number; payload?: { carriedForward?: boolean }; index?: number }) => (
+                    <circle key={p.index} cx={p.cx} cy={p.cy} r={points.length > 40 ? 1.8 : 3} fill="var(--accent)" fillOpacity={p.payload?.carriedForward ? 0.25 : 1} />
+                  )}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          {note && <p className="t-secondary mt-2">{note}</p>}
+          <Table head={["Date", "VO2 max"]} rows={[...points].reverse().map((p) => [formatDate(p.date), `${p.value}${p.carriedForward ? " (carried forward)" : ""}`])} />
+          {(v.stale || v.lastError) && v.ageMinutes !== null && <p className="t-label mt-2">Showing the last values Garmin gave, {ageText(v.ageMinutes)} old{v.lastError ? ", the latest update failed" : ""}.</p>}
+        </>
+      )}
+    </section>
+  );
+}
+
 function Trends({ t }: { t: TrendsResponse }) {
   const load = t.trainingLoad.filter((p) => p.atl !== null || p.ctl !== null);
   const synced = (
@@ -37,7 +95,6 @@ function Trends({ t }: { t: TrendsResponse }) {
     </>
   );
   const lastLoad = load[load.length - 1];
-  const lastVo2 = t.vo2max[t.vo2max.length - 1];
   return (
     <div className="grid gap-3 md:grid-cols-2">
       <Card title="Training load" className="md:col-span-2">
@@ -77,25 +134,7 @@ function Trends({ t }: { t: TrendsResponse }) {
         {synced}
       </Card>
 
-      <Card title="VO2 max">
-        {t.vo2max.length === 0 ? <Empty /> : (
-          <>
-            <p className="t-secondary mb-2">ml/kg/min, Garmin estimate.{lastVo2 ? ` Latest ${formatDate(lastVo2.date)}: ${lastVo2.value}.` : ""}</p>
-            <div role="img" aria-label="Line chart of VO2 max. A table follows." className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={t.vo2max} margin={{ left: 0, right: 8, top: 8, bottom: 16 }}>
-                  <CartesianGrid stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tickFormatter={shortDate} {...axis} label={{ value: "Date (dd/mm)", position: "insideBottom", offset: -4, fill: "var(--muted)", fontSize: 12 }} height={52} />
-                  <YAxis domain={["dataMin - 1", "dataMax + 1"]} {...axis} width={44} label={{ value: "VO2 max", angle: -90, position: "insideLeft", fill: "var(--muted)", fontSize: 12 }} />
-                  <Line dataKey="value" stroke="var(--accent)" dot={false} strokeWidth={2} isAnimationActive={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            <Table head={["Date", "VO2 max"]} rows={[...t.vo2max].reverse().map((p) => [formatDate(p.date), p.value])} />
-          </>
-        )}
-        {synced}
-      </Card>
+      <Vo2Chart />
 
       <Card title="Endurance score">
         {!t.endurance ? <Empty /> : (

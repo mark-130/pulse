@@ -6,3 +6,4 @@ export * from "./races.js";
 export * from "./proposals.js";
 export * from "./ai.js";
 export * from "./update.js";
+export * from "./zones.js";

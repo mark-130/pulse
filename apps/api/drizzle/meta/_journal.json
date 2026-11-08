@@ -50,6 +50,13 @@
       "when": 1794165708498,
       "tag": "0006_ai_text_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794170635408,
+      "tag": "0007_zones_and_vo2max",
+      "breakpoints": true
     }
   ]
 }

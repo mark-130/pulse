@@ -11,7 +11,7 @@ import type {
 } from "@pulse/shared";
 import { addDays, londonDate, weekStart } from "../../dates.js";
 import type { Db } from "../../db/index.js";
-import { activity, garminSnapshot, workout } from "../../db/schema.js";
+import { activity, garminSnapshot, vo2maxPoint, workout } from "../../db/schema.js";
 import { lastGarminOk } from "./freshness.js";
 import { computeVerdict } from "../ai/verdict.js";
 import { countPending } from "../proposals/engine.js";
@@ -171,7 +171,7 @@ export function getWeek(db: Db, now: Date, startParam?: string): WeekResponse {
 export function getTrends(db: Db, now: Date): TrendsResponse {
   const today = londonDate(now);
   const load = latestSnapshot(db, "training_load_trend", up.trainingLoadTrendSchema, today);
-  const vo2 = latestSnapshot(db, "vo2max_trend", up.vo2Schema, today);
+  const vo2 = db.select().from(vo2maxPoint).orderBy(asc(vo2maxPoint.date)).all().filter((p) => p.date >= addDays(today, -89));
   const endurance = latestSnapshot(db, "endurance_score", up.enduranceSchema, today);
   const preds = latestSnapshot(db, "race_predictions", up.racePredictionsSchema, today);
   const since = addDays(weekStart(today), -7 * 11);
@@ -189,7 +189,7 @@ export function getTrends(db: Db, now: Date): TrendsResponse {
   return {
     syncedAt: lastGarminOk(db, ["activities", "trends"]),
     trainingLoad: (load?.data.trend ?? []).map((t) => ({ date: t.date, atl: t.atl ?? null, ctl: t.ctl ?? null, acwr: t.acwr ?? null })),
-    vo2max: (vo2?.data.trend ?? []).map((t) => ({ date: t.date, value: t.vo2_max })),
+    vo2max: vo2.map((p) => ({ date: p.date, value: p.value, carriedForward: p.carriedForward })),
     endurance: endurance
       ? { current: endurance.data.current_score ?? null, classification: endurance.data.classification ?? null, weekly: endurance.data.weekly_breakdown.map((w) => ({ weekStart: w.week_start, avg: w.avg_score })) }
       : null,

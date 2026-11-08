@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { aiStatusSchema, debriefOneResponseSchema, debriefsResponseSchema, reviewResponseSchema, leadUpResponseSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
+import { aiStatusSchema, vo2ResponseSchema, zonesResponseSchema, debriefOneResponseSchema, debriefsResponseSchema, reviewResponseSchema, leadUpResponseSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
 import { z } from "zod";
 import { api } from "./api";
 
@@ -144,3 +144,26 @@ export function useWriteDebrief() {
     },
   });
 }
+
+/** Heart rate zones: Mark's Kotcha copy beside Garmin's. Reads the cache. */
+export const useZones = () => useQuery({ queryKey: ["zones"], queryFn: () => api("/api/zones", zonesResponseSchema), refetchInterval: 5 * MIN });
+
+/** An explicit save of the Kotcha copy. It changes only our own table. */
+export function useSaveKotcha() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tops: number[]) => api("/api/zones/kotcha", zonesResponseSchema, { method: "POST", body: { tops } }),
+    onSuccess: (data) => qc.setQueryData(["zones"], data),
+  });
+}
+
+/** "Kotcha is up to date": the current Garmin zones become the confirmed ones. */
+export function useConfirmZones() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api("/api/zones/confirm", zonesResponseSchema, { method: "POST" }),
+    onSuccess: (data) => qc.setQueryData(["zones"], data),
+  });
+}
+
+export const useVo2 = (days: number) => useQuery({ queryKey: ["vo2max", days], queryFn: () => api(`/api/vo2max?days=${days}`, vo2ResponseSchema), refetchInterval: 5 * MIN });

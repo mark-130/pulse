@@ -5,6 +5,7 @@ import type { Db } from "../../db/index.js";
 import { activity } from "../../db/schema.js";
 import { getToday, getTrends, getWeek } from "../garmin/queries.js";
 import { getLeadUp, getRaceView } from "../races/data.js";
+import { getVo2View, getZonesView } from "../zones/data.js";
 import type { LlmTool } from "./llm.js";
 
 /**
@@ -17,6 +18,8 @@ export const ASK_TOOLS: LlmTool[] = [
   { name: "list_races", description: "Races from the Garmin calendar with priority (only if Mark set it), type, distance, goal, data quality flags and clash warnings.", input_schema: { type: "object", properties: { include_past: { type: "boolean" } } } },
   { name: "get_race_leadup", description: "Facts about one race and the weeks before it, from Garmin: days to go, per week the number of scheduled workouts, scheduled minutes, the longest scheduled session, rest days and completed against scheduled so far, plus flags (priority not set, start time unverified, another race nearby, a workout on race day) and clash warnings. No suggestions.", input_schema: { type: "object", properties: { race: { type: "string", description: 'The word "next", or part of the race name.' } }, required: ["race"] } },
   { name: "get_metrics", description: "A metric history from the last sync: training_load (acute, chronic, ratio), vo2max, endurance, weekly_distance or race_predictions.", input_schema: { type: "object", properties: { metric: { type: "string", enum: ["training_load", "vo2max", "endurance", "weekly_distance", "race_predictions"] }, days: { type: "number", description: "How many recent days, 1 to 90. Default 28." } }, required: ["metric"] } },
+  { name: "get_hr_zones", description: "Heart rate zones as facts: Mark's manual copy of his Kotcha zones (Kotcha owns them) and Garmin's zones side by side, with each zone's range in bpm, the zones whose tops differ, and any open warning that Garmin changed its zones and the Kotcha copy was not confirmed.", input_schema: { type: "object", properties: {} } },
+  { name: "get_vo2max", description: "Garmin's VO2 max for the last 30 days: daily values with carried-forward days marked, the current value and its date, and the change over 30 days.", input_schema: { type: "object", properties: {} } },
   { name: "get_activity", description: "One recorded activity by id, from the Garmin sync.", input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
 ];
 
@@ -108,6 +111,19 @@ export function runTool(name: string, input: unknown, ctx: ToolContext): string 
         const r = q === "next" ? v.races.find((x) => !x.past) : v.races.find((x) => x.title.toLowerCase().includes(q));
         if (!r) return wrapData(name, { error: `No race matches "${a.race}".`, races: v.races.map((x) => x.title) });
         return wrapData(name, { race: raceBrief(r), ...getLeadUp(ctx.db, ctx.now, r.eventKey) });
+      }
+      case "get_hr_zones": {
+        const z = getZonesView(ctx.db, ctx.now);
+        return wrapData(name, {
+          kotchaCopy: { note: "A manual copy of the zones in Kotcha, Mark's coaching app, which owns them. Each top is the highest bpm of the zone.", source: z.kotcha.source, savedAt: z.kotcha.savedAt, zones: z.kotcha.zones.map((k) => ({ zone: k.zone, name: k.name, fromBpm: k.from, topBpm: k.top })) },
+          garmin: z.garmin && { profile: z.garmin.zones.profile, runningUsesDefaultProfile: z.garmin.zones.usingDefault, method: z.garmin.zones.method, restingHr: z.garmin.zones.resting, lactateThresholdHr: z.garmin.zones.lactateThreshold, maxHr: z.garmin.zones.max, firstSeen: z.garmin.firstSeen, fetchedAt: z.garmin.fetchedAt, zones: z.garmin.ranges.map((r) => ({ zone: r.zone, floorBpm: r.from, topBpm: r.top })) },
+          topsThatDiffer: z.differences.map((d) => d.text),
+          openWarning: z.warning ? z.warning.text : null,
+        });
+      }
+      case "get_vo2max": {
+        const v = getVo2View(ctx.db, ctx.now, 30);
+        return wrapData(name, { fetchedAt: v.fetchedAt, current: v.current, change30Days: v.change30?.text ?? null, points: v.points });
       }
       case "get_metrics": {
         const a = metricsArgs.parse(input);

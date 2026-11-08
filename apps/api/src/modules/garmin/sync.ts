@@ -4,7 +4,9 @@ import { eq } from "drizzle-orm";
 import type { z } from "zod";
 import { addDays, londonDate, normaliseTitle } from "../../dates.js";
 import type { Db } from "../../db/index.js";
-import { activity, garminSnapshot, race, settings, syncState, workout } from "../../db/schema.js";
+import { activity, garminSnapshot, race, settings, syncState, vo2maxPoint, workout } from "../../db/schema.js";
+import { chooseProfile } from "../zones/logic.js";
+import { recordZonesHistory } from "../zones/data.js";
 import { sanitiseError } from "../../notify.js";
 import { kindJob, recordKind } from "./freshness.js";
 import type { GarminConnector, GarminReadTool, GarminResult, GarminSession } from "./client.js";
@@ -163,6 +165,13 @@ function applyActivities(data: z.infer<typeof up.activitiesSchema>, ctx: Ctx) {
   }
 }
 
+function applyVo2(data: z.infer<typeof up.vo2Schema>, ctx: Ctx) {
+  for (const p of data.trend) {
+    const values = { value: p.vo2_max, carriedForward: p.carried_forward ?? false, fetchedAt: ctx.nowIso };
+    ctx.db.insert(vo2maxPoint).values({ date: p.date, ...values }).onConflictDoUpdate({ target: vo2maxPoint.date, set: values }).run();
+  }
+}
+
 function buildTasks(today: string, activityDays: number): Task<unknown>[] {
   const day = { date: today };
   const tasks: Task<unknown>[] = [
@@ -209,7 +218,15 @@ function buildTasks(today: string, activityDays: number): Task<unknown>[] {
       kind: "training_load_trend",
       schema: up.trainingLoadTrendSchema,
     },
-    { name: "vo2max_trend", tool: "get_vo2max_trend", args: { start_date: addDays(today, -83), end_date: today }, kind: "vo2max_trend", schema: up.vo2Schema },
+    // One call of 90 days, the most Garmin allows. It fills the VO2 max table: 30 days for the card, 3 months for Trends. The history import (4c) will add older windows of 30 days.
+    {
+      name: "vo2max",
+      tool: "get_vo2max_trend",
+      args: { start_date: addDays(today, -89), end_date: today },
+      kind: "vo2max",
+      schema: up.vo2Schema,
+      apply: (d, c) => applyVo2(d as z.infer<typeof up.vo2Schema>, c),
+    },
     { name: "endurance_score", tool: "get_endurance_score", args: { start_date: addDays(today, -83), end_date: today }, kind: "endurance_score", schema: up.enduranceSchema },
     { name: "race_predictions", tool: "get_race_predictions", args: {}, kind: "race_predictions", schema: up.racePredictionsSchema },
   ];
@@ -456,6 +473,35 @@ async function runReadingsBackfill(session: GarminSession, state: ReadingsState,
   return { pending: state.windows.filter((x) => !x.done).length, doneThisRun, failedWindow };
 }
 
+/**
+ * Heart rate zones (D46): ask for the running profile first and fall back to the DEFAULT profile when none is configured.
+ * Garmin answers "No configured heart-rate zones found for sport RUNNING." as plain text, which means there is none.
+ * The chosen zones are stored as a summary snapshot, and the history table notes the date a new set was first seen.
+ */
+async function runZonesTask(session: GarminSession, ctx: Ctx, retry: RetryState): Promise<SyncTaskResult> {
+  const base = { name: "hr_zones", essential: false };
+  try {
+    let res = await callWithRetry(session, "get_heart_rate_zones", { sport: "running" }, retry);
+    let zones = res.kind === "json" ? chooseProfile(res.data) : null;
+    if (res.kind === "message" && !/^no\b/i.test(res.text.trim())) return { ...base, status: "failed", error: sanitiseError(res.text) };
+    if (!zones) {
+      // No running profile: the DEFAULT profile applies to running.
+      res = await callWithRetry(session, "get_heart_rate_zones", {}, retry);
+      if (res.kind === "message") return /^no\b/i.test(res.text.trim()) ? { ...base, status: "empty" } : { ...base, status: "failed", error: sanitiseError(res.text) };
+      zones = chooseProfile(res.data);
+    }
+    if (!zones) return { ...base, status: "failed", error: "unexpected shape: heart rate zones" };
+    const chosen = zones;
+    ctx.db.transaction(() => {
+      upsertSnapshot(ctx, "hr_zones", ctx.today, chosen);
+      recordZonesHistory(ctx.db, chosen, ctx.today);
+    });
+    return { ...base, status: "ok" };
+  } catch (err) {
+    return { ...base, status: "failed", error: sanitiseError(err) };
+  }
+}
+
 /** One read-only pass over Garmin. Never throws for a single failed call. Throws only if it cannot connect. */
 export async function runGarminSync(deps: { db: Db; connect: GarminConnector; now?: () => Date; sleep?: Sleep }): Promise<SyncResult> {
   const now = (deps.now ?? (() => new Date()))();
@@ -475,6 +521,9 @@ export async function runGarminSync(deps: { db: Db; connect: GarminConnector; no
       recordKind(deps.db, task.name, ctx.nowIso, result.status === "failed" ? (result.error ?? "failed") : null);
       tasks.push(result);
     }
+    const zonesResult = await runZonesTask(session, ctx, retry);
+    recordKind(deps.db, "hr_zones", ctx.nowIso, zonesResult.status === "failed" ? (zonesResult.error ?? "failed") : null);
+    tasks.push(zonesResult);
     const failed = tasks.filter((t) => t.status === "failed").length;
     // The backfill runs last and never makes the run partial: a failed window is simply tried again next run.
     const backfill = await runBackfill(session, windows, ctx, retry);

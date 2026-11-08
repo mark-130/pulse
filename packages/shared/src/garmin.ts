@@ -48,7 +48,7 @@ export const GARMIN_GROUPS = [
   { id: "plan", label: "the plan", plural: false, critical: true, tasks: ["scheduled_workouts", "calendar_events"] },
   { id: "readiness", label: "readiness", plural: false, critical: true, tasks: ["stats", "training_readiness", "sleep", "hrv", "rhr", "body_battery"] },
   { id: "activities", label: "activities", plural: true, critical: false, tasks: ["activities"] },
-  { id: "trends", label: "trends", plural: true, critical: false, tasks: ["training_status", "training_load_balance", "training_load_trend", "vo2max_trend", "endurance_score", "race_predictions"] },
+  { id: "trends", label: "trends", plural: true, critical: false, tasks: ["training_status", "training_load_balance", "training_load_trend", "vo2max", "hr_zones", "endurance_score", "race_predictions"] },
 ] as const;
 export type GarminGroupId = (typeof GARMIN_GROUPS)[number]["id"];
 
@@ -145,7 +145,7 @@ export type WeekResponse = z.infer<typeof weekResponseSchema>;
 export const trendsResponseSchema = z.object({
   syncedAt: z.string().nullable(),
   trainingLoad: z.array(z.object({ date: z.string(), atl: z.number().nullable(), ctl: z.number().nullable(), acwr: z.number().nullable() })),
-  vo2max: z.array(z.object({ date: z.string(), value: z.number() })),
+  vo2max: z.array(z.object({ date: z.string(), value: z.number(), carriedForward: z.boolean().default(false) })),
   endurance: z
     .object({
       current: z.number().nullable(),

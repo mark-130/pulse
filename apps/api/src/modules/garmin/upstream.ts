@@ -71,7 +71,22 @@ export const statsSchema = z.object({
 export const trainingLoadTrendSchema = z.object({
   trend: z.array(z.object({ date: z.string(), atl: num, ctl: num, acwr: num })),
 });
-export const vo2Schema = z.object({ trend: z.array(z.object({ date: z.string(), vo2_max: z.number() })) });
+export const vo2Schema = z.object({ trend: z.array(z.object({ date: z.string(), vo2_max: z.number(), carried_forward: z.boolean().optional() })) });
+
+/** One heart rate zone profile from get_heart_rate_zones. Garmin keeps a DEFAULT profile and optional sport profiles such as RUNNING. */
+export const hrZoneProfileSchema = z.object({
+  sport: z.string(),
+  trainingMethod: z.string().nullish(),
+  restingHeartRateUsed: z.number().nullish(),
+  lactateThresholdHeartRateUsed: z.number().nullish(),
+  zone1Floor: z.number(),
+  zone2Floor: z.number(),
+  zone3Floor: z.number(),
+  zone4Floor: z.number(),
+  zone5Floor: z.number(),
+  maxHeartRateUsed: z.number(),
+});
+export const hrZonesSchema = z.array(hrZoneProfileSchema);
 export const enduranceSchema = z.object({
   current_score: num,
   classification: str,

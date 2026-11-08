@@ -8,7 +8,7 @@ import { GARMIN_WRITE_TOOLS, assertWriteTool } from "../src/modules/proposals/ex
 const WRITE_TOOLS = [
   "schedule_workout", "reschedule_workout", "unschedule_workout", "schedule_workouts", "unschedule_workouts", "schedule_week",
   "upload_workout", "upload_workouts", "upload_course", "delete_workout", "delete_workouts", "delete_activity", "delete_course",
-  "create_run_workout", "create_strength_workout", "push_workout_to_device", "add_weigh_in", "log_food", "set_activity_name", "request_reload",
+  "create_run_workout", "create_strength_workout", "push_workout_to_device", "set_heart_rate_zones", "add_weigh_in", "log_food", "set_activity_name", "request_reload",
 ];
 
 function sources(dir: string): string[] {

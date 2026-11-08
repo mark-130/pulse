@@ -3,6 +3,7 @@
 ## Ownership rule (D42)
 - Mark's coaching app owns all training content: sessions, load, paces, tapers, recovery and race preparation. Garmin is the source of truth for what is scheduled.
 - NGtive Split reports what is in Garmin. It never suggests, designs or critiques training, and the AI must not either. Asked for training advice, the chat answers with facts from Garmin and says to take the question to his coach.
+- Heart rate zones: Kotcha owns Mark's zones. The app holds a manual copy and shows Garmin's zones beside it, as facts, and warns when Garmin's change so he can update Kotcha (D46). It never says how to train in a zone.
 - Race classes (A, B, C) only drive display, clash flags and data quality flags. The taper and recovery defaults below are reference notes. They are not used to produce recommendations, and nothing in the app shows them as advice.
 
 ## Sources of truth

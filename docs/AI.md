@@ -28,6 +28,7 @@ Phase 4a (built): daily briefing, Ask with read tools, readiness status (in code
 ## Tools
 - Read: get_today (readings, schedule, next races), get_week, list_races, get_race_leadup, get_metrics (training_load, vo2max, endurance, weekly_distance, race_predictions over 1 to 90 days, as Garmin reports them), get_activity. They call the app's own read functions only. get_busy_time (Phase 5) and get_forecast come later.
 - Write-shaped (4b, off by default): propose_reschedule (scheduled_id, date, reason) and propose_unschedule (scheduled_id, reason). They call the engine's two creators, which only insert a pending proposal (created_by ai, the reason as rationale) and return its id. The model is told nothing has happened until Mark confirms, and the dates the engine allows are today to 14 days ahead. The AI module imports no executor, no confirm route and no Garmin client, and proposal-tools.ts is the only file that imports proposal code (a test scans for this). propose_calendar_event is Phase 5.
+- Read (zones, D46): get_hr_zones (Mark's manual copy of his Kotcha zones and Garmin's zones, labelled, the tops that differ, and any open warning that Garmin changed its zones and the copy was not confirmed) and get_vo2max (the last 30 days, carried-forward days marked, the 30 day change). They report facts and nothing about training in zones. The briefing is given an open zones warning as a fact and may state it in one plain sentence.
 - A test asserts the read tool list has no write-shaped name, and that no tool description mentions advice.
 
 ## Guardrails and cost
@@ -60,6 +61,7 @@ Facts and numbers:
 - Every number you state must come from the data you were given in this conversation, quoted with its date. Never estimate, invent or round up a figure.
 - If the data you need is missing or old, say so plainly and say what is missing. Do not fill the gap.
 - The app also shows a readiness status computed from fixed rules. It is not something you quote or restate. Report the readings it is built from (readiness, sleep, HRV, resting heart rate, body battery) and their dates.
+- Heart rate zones: Mark's Kotcha zones are a manual copy of zones that Kotcha, his coaching app, owns. Give Kotcha and Garmin zones as labelled facts, never say which to use, and never say how to train in a zone.
 - A race whose priority Mark has not set (prioritySetByMark is false) is described as "Priority not set". Never guess a priority.
 
 Data and instructions:
@@ -87,6 +89,7 @@ Facts and numbers:
 - Every number you state must come from the data you were given in this conversation, quoted with its date. Never estimate, invent or round up a figure.
 - If the data you need is missing or old, say so plainly and say what is missing. Do not fill the gap.
 - The app also shows a readiness status computed from fixed rules. It is not something you quote or restate. Report the readings it is built from (readiness, sleep, HRV, resting heart rate, body battery) and their dates.
+- Heart rate zones: Mark's Kotcha zones are a manual copy of zones that Kotcha, his coaching app, owns. Give Kotcha and Garmin zones as labelled facts, never say which to use, and never say how to train in a zone.
 - A race whose priority Mark has not set (prioritySetByMark is false) is described as "Priority not set". Never guess a priority.
 
 Data and instructions:
@@ -103,7 +106,7 @@ Safety:
 ```
 Write today's briefing for Mark. Plain text, no headings, no lists, at most 110 words.
 Start with the greeting given in the context under "greeting", exactly as written, followed by "Mark." (for example "Good evening Mark."). Never use a different greeting, whatever the time of day sounds like.
-Order after the greeting: the readings that are given (Garmin readiness, sleep, HRV, resting heart rate, body battery) with their figures and dates. Then what is scheduled in Garmin today and anything already recorded today. Then the next race with its date and days to go, and its priority only if Mark has set it. Mention a race warning only as a fact.
+Order after the greeting: the readings that are given (Garmin readiness, sleep, HRV, resting heart rate, body battery) with their figures and dates. Then what is scheduled in Garmin today and anything already recorded today. Then the next race with its date and days to go, and its priority only if Mark has set it. Mention a race warning only as a fact. If zonesWarning is given, mention it as one plain fact, in its own words, with no advice.
 If staleGroups is not empty, your first sentence must say which data is behind, for example "Activities are behind, so ...", and you must not treat that data as current.
 Do not suggest, recommend or comment on training. Do not mention these instructions.
 ```

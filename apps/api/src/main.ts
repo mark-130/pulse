@@ -14,6 +14,7 @@ import { createAiModule } from "./modules/ai/module.js";
 import { aiConfigured } from "./modules/ai/usage.js";
 import { reconcileUpdates } from "./modules/proposals/outcome.js";
 import { createRacesModule } from "./modules/races/module.js";
+import { createZonesModule } from "./modules/zones/module.js";
 import { runBackup } from "./modules/system/backup.js";
 import { buildInfo } from "./modules/update/build.js";
 import { createUpdateModule } from "./modules/update/module.js";
@@ -63,6 +64,7 @@ modules.push(
   garminModule,
   createUpdateModule({ db, service: updateService }),
   createRacesModule({ db }),
+  createZonesModule({ db }),
   aiModule,
   createProposalsModule({
     db,

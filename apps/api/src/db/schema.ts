@@ -157,6 +157,36 @@ export const aiUsage = sqliteTable("ai_usage", {
   costGbp: real("cost_gbp").notNull(),
 });
 
+/** Kotcha owns Mark's heart rate zones. This is only his manual copy: the TOP of each zone in bpm (D46). Covered by the nightly backup. */
+export const kotchaZone = sqliteTable("kotcha_zone", {
+  zone: integer("zone").primaryKey(),
+  name: text("name").notNull(),
+  topBpm: integer("top_bpm").notNull(),
+  /** seed: starting values. manual: saved by Mark. */
+  source: text("source", { enum: ["seed", "manual"] }).notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/** Each distinct set of Garmin heart rate zones, with the date the app first saw it, so a change date can be shown. */
+export const hrZonesHistory = sqliteTable("hr_zones_history", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  firstSeen: text("first_seen").notNull(),
+  profile: text("profile", { enum: ["RUNNING", "DEFAULT"] }).notNull(),
+  method: text("method").notNull(),
+  floors: json<number[]>("floors").notNull(),
+  maxHr: integer("max_hr").notNull(),
+  restingHr: integer("resting_hr"),
+  lactateThresholdHr: integer("lactate_threshold_hr"),
+});
+
+/** Daily VO2 max points from Garmin. carried_forward marks a day Garmin filled with the last known value. */
+export const vo2maxPoint = sqliteTable("vo2max_point", {
+  date: text("date").primaryKey(),
+  value: real("value").notNull(),
+  carriedForward: integer("carried_forward", { mode: "boolean" }).notNull().default(false),
+  fetchedAt: text("fetched_at").notNull(),
+});
+
 /** Generated AI text, cached so it is never rewritten unless Mark taps Refresh. kind: weekly_review (key week start) or debrief (key activity id). */
 export const aiText = sqliteTable(
   "ai_text",

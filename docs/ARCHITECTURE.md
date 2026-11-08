@@ -13,6 +13,9 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - sync_state: job, last_ok, last_attempt, last_error, consecutive_failures, last_alert_at, detail
 - briefing: date, text, data JSON (generatedAt, stale groups, the context sent), model, tokens
 - chat_message: thread, role, content, tool_calls JSON
+- kotcha_zone: zone (1 to 5), name, top_bpm, source (seed or manual), updated_at. Mark's manual copy of his Kotcha zones (D46). Kotcha owns the real ones. Covered by the nightly backup like every table.
+- hr_zones_history: first_seen, profile, method, floors, max_hr, resting_hr, lactate_threshold_hr. One row per distinct set of Garmin zones, so a change date can be shown.
+- vo2max_point: date, value, carried_forward, fetched_at. Daily Garmin VO2 max, upserted by the routine sync.
 - ai_text: kind, key, text, data JSON, model, tokens, created_at, primary key (kind, key). Cached AI text: weekly_review (week start) or debrief (activity id). Rewritten only on Refresh.
 - ai_usage: ts, feature, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_gbp (real, GBP)
 - settings: key, value JSON (garmin_backfill windows, home coordinates, Phase 5 calendar allowlist)
@@ -39,6 +42,11 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - Watchtower stops this container during the request, so the browser's confirm request normally ends in a dropped connection. Outcome: proposals/outcome.ts compares the running build with the build the update started from, at boot and on GET /api/update and GET /api/proposals. A different build is update.completed. The same build 3 minutes after the call is update.not_completed. A 401, 403, 404, 429 or an unreachable Watchtower makes the proposal failed with a plain reason.
 - The browser polls /api/health/version every 3 seconds (tolerating the dropped connection) for up to 3 minutes: "Updated to cc3b793" or the timeout message with Details.
 - Extra audit actions: update.requested, update.backup_taken, update.called, update.completed, update.not_completed.
+
+## Heart rate zones and VO2 max (D46)
+- apps/api/src/modules/zones: logic.ts (pure: choose the running profile or DEFAULT, the tops, differences, the warning text), data.ts (reads, the explicit Kotcha save, the confirm), module.ts. Routes: GET /api/zones, POST /api/zones/kotcha {tops} (validated: whole numbers, ascending, zone 5 equals Garmin's max), POST /api/zones/confirm, GET /api/vo2max?days=7 to 400. They read the cache. The only writes are to kotcha_zone and the confirmed-zones setting (kotcha_confirmed_garmin), each on a tap and audited. Nothing can write to Garmin or Kotcha.
+- Sync: kinds hr_zones (every sync, one call, with the running then DEFAULT rule) and vo2max (one 90 day call into vo2max_point), both in the trends freshness group with per-kind success, failure and retry like the others. A new set of Garmin zones adds a hr_zones_history row.
+- The warning is derived from the latest successfully stored zones against the confirmed zones, so a failed or stale fetch cannot raise or clear it.
 
 ## Auth
 Single user. Password checked against a scrypt hash (salt:hash in hex) in PULSE_PASSWORD_HASH. Signed httpOnly SameSite=Lax session cookie (30 days). CSRF token header on every non-GET. Login rate limit: 5 attempts per 15 minutes per IP. Tailscale identity headers are not trusted, because LAN clients can spoof them.

@@ -44,7 +44,9 @@ export const payloads: Record<string, unknown> = {
   get_training_status: { training_status_feedback: "PRODUCTIVE_6" },
   get_training_load_balance: { feedback: "ANAEROBIC_SHORTAGE" },
   get_training_load_trend: { trend: [{ date: "2026-11-06", atl: 640, ctl: 430, acwr: 1.5 }, { date: "2026-11-07", atl: 699, ctl: 436, acwr: 1.6 }] },
-  get_vo2max_trend: { trend: [{ date: "2026-09-01", vo2_max: 46.8 }, { date: "2026-11-07", vo2_max: 45.7 }] },
+  get_vo2max_trend: { trend: [{ date: "2026-09-01", vo2_max: 46.8 }, { date: "2026-10-09", vo2_max: 46.5, carried_forward: true }, { date: "2026-10-10", vo2_max: 46.5 }, { date: "2026-11-07", vo2_max: 45.7 }] },
+  // The live DEFAULT profile on 08/11/2026: lactate threshold method, resting 47, lactate threshold 162, max 180.
+  get_heart_rate_zones: [{ trainingMethod: "LACTATE_THRESHOLD", restingHeartRateUsed: 47, lactateThresholdHeartRateUsed: 162, zone1Floor: 103, zone2Floor: 130, zone3Floor: 144, zone4Floor: 151, zone5Floor: 158, maxHeartRateUsed: 180, restingHrAutoUpdateUsed: true, sport: "DEFAULT", changeState: "UNCHANGED" }],
   get_endurance_score: { current_score: 5710, classification: "trained", weekly_breakdown: [{ week_start: "2026-10-26", avg_score: 5650 }] },
   get_race_predictions: { prediction_date: TODAY, predictions: { "5K": { time_seconds: 1495 }, "10K": { time_seconds: 3147 }, half_marathon: { time_seconds: 7106 }, marathon: { time_seconds: 15812 } } },
 };

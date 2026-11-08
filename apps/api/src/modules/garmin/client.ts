@@ -20,6 +20,7 @@ export const GARMIN_READ_TOOLS = [
   "get_training_load_balance",
   "get_training_load_trend",
   "get_vo2max_trend",
+  "get_heart_rate_zones",
   "get_running_tolerance_trend",
   "get_endurance_score",
   "get_race_predictions",

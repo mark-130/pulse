@@ -9,6 +9,8 @@ import { AiChip, Chip, PriorityChip } from "@/components/Chip";
 import { Orb } from "@/components/Orb";
 import { Button } from "@/components/ui";
 import { useDebriefBlocks } from "@/components/Debriefs";
+import { Vo2Card } from "@/components/Vo2Card";
+import { ZonesCard } from "@/components/ZonesCard";
 import { FailureDetails } from "@/components/FailureDetails";
 import { Prose } from "@/components/Prose";
 import { formatClock, formatDate, formatDayDate, formatDurationMin, formatKm, formatRaceKm, formatRaceTime, formatTime, humanise, plural } from "@/lib/format";
@@ -268,6 +270,8 @@ export function Today() {
           <Session data={data} />
           <Race data={data} />
           <Metrics data={data} />
+          <ZonesCard />
+          <Vo2Card />
         </>
       )}
 

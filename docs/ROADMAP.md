@@ -27,6 +27,9 @@ Scope as built: race lead-up on the race detail screen (facts from the cache, no
 Deferred: briefing by ntfy (ntfy is off), optional forecast.
 Acceptance: every figure traceable to data. No suggested numbers or advice anywhere. Write-shaped tools only insert a proposal, and with either flag off no proposal is created. The lead-up and every non-AI feature work with AI off and at the cap. Sign-off waits for Mark to test. The two flags stay off until the live probe result is recorded as a decision (D34).
 
+### Tooling between phases: heart rate zones and VO2 max (D46)
+Built: the Today cards (Kotcha zones copy with Garmin's zones and the change warning, VO2 max), the Trends VO2 max chart, the read tools and the sync kinds. Phase 4c (history import: older VO2 max in windows of 30 days and more history) is not built.
+
 ## Phase 5: Google Calendar, scope to be agreed
 Scope and acceptance to be agreed before this phase starts. Candidates: busy time for the readiness verdict, mirrored planned workouts on a "Pulse Training" calendar (proposals only). See docs/INTEGRATIONS.md.
 

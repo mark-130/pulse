@@ -5,6 +5,7 @@ import { briefing as briefingTable } from "../../db/schema.js";
 import { getToday } from "../garmin/queries.js";
 import { groupStatuses } from "../garmin/freshness.js";
 import { getRaceView } from "../races/data.js";
+import { getZonesView } from "../zones/data.js";
 import { BRIEFING_TASK } from "./prompts.js";
 import { systemFor } from "./proposal-tools.js";
 import { textFrom } from "./failure.js";
@@ -20,6 +21,11 @@ export function getBriefing(rt: AiRuntime, date = londonDate(rt.now())): Briefin
   if (!row) return null;
   const d = (row.data ?? {}) as { generatedAt?: string; staleGroups?: string[] };
   return { date: row.date, text: row.text, generatedAt: d.generatedAt ?? row.date, model: row.model ?? "", staleGroups: d.staleGroups ?? [] };
+}
+
+function zonesFact(rt: AiRuntime): string | null {
+  const w = getZonesView(rt.db, rt.now()).warning;
+  return w ? `Garmin heart rate zones changed on ${w.changedOn.slice(8, 10)}/${w.changedOn.slice(5, 7)} and the Kotcha copy has not been confirmed.` : null;
 }
 
 /** The pre-assembled context for the single briefing call. Only summaries and metrics from our own database. */
@@ -46,6 +52,8 @@ export function briefingContext(rt: AiRuntime) {
       followingRace: race(t.followingRace),
       raceWarnings: races.warnings.filter((w) => w.severity === "action").slice(0, 3).map((w) => w.message),
       pendingProposals: t.proposals.pending,
+      // A fact only: Garmin changed the heart rate zones and the Kotcha copy has not been confirmed.
+      zonesWarning: zonesFact(rt),
     },
     staleGroups,
   };
