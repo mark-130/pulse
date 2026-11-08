@@ -68,6 +68,16 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - Cluster warning with an undecided A race: a full width button per race, "Make X the A race".
 - The Today race card shows the priority, distance, goal and taper chips, the taper status line, tinted taper days in the seven day row, and an "All races" link.
 
+## Proposals and the confirm dialog (Phase 3)
+- Proposals screen: "Waiting for you (n)" then History. Each row has the kind, a Garmin chip, a status chip, a one line summary (dates, or removal in red), the expiry or decision time, and a Review or Details button. A line at the top says whether Garmin writes are on or off.
+- History status chips: Applied, Applied as a dry run, Rejected, Expired, Out of date (stale), Failed. Applied live changes also show the plan app check: "Checking: n of 2 syncs confirmed", "Verified" or "Reverted by the plan app".
+- Confirm dialog (native modal, bottom sheet on narrow screens): overline "Change to Garmin", the kind as title, then the exact before and after for each field that changes, who proposed it and when it expires. One primary Confirm button, a Reject button and a "Not now" button, all 44px tall. Focus starts on the dialog itself, so nothing is pre-selected and Enter confirms nothing. Destructive changes (Remove from schedule) use the rose Confirm button and show the after text in rose, with words as well as colour. No orb, no humour.
+- Dry run: while writes are off a notice at the top of the dialog says "Dry run: nothing will be sent to Garmin", with a warning icon.
+- Stale: the dialog explains that the workout changed in Garmin since the proposal, that nothing was sent, what Garmin has now, and to make the change again from Week.
+- The Move note "The plan app may revert this." appears in the Move dialog and the confirm dialog until the sync conflict probe result is recorded in DECISIONS.md (PROBE_RESULT_RECORDED in packages/shared).
+- Week: each planned, not completed workout from today on has Move (opens a date picker dialog) and Remove from schedule. Both only create a proposal, then a toast links to Proposals.
+- The Today proposals card shows the real pending count.
+
 ## Today order
 Orb hero, briefing, prompt chips, verdict, session, race, metrics, proposals. Module widgets register a card (1x1 or 2x1) into the grid after these. Reordering is a later feature.
 

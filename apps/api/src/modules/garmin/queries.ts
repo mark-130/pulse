@@ -12,6 +12,7 @@ import { addDays, londonDate, weekStart } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { activity, garminSnapshot, workout } from "../../db/schema.js";
 import { lastGarminOk } from "./freshness.js";
+import { countPending } from "../proposals/engine.js";
 import { getRaceView } from "../races/data.js";
 import * as up from "./upstream.js";
 
@@ -89,6 +90,7 @@ export function getToday(db: Db, now: Date): TodayResponse {
   return {
     date: today,
     syncedAt: lastGarminOk(db),
+    proposals: { pending: countPending(db, now) },
     readiness: pickReadiness(db, today),
     session: {
       today: db.select().from(workout).where(eq(workout.date, today)).all().map(toWorkout),

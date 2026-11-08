@@ -25,11 +25,45 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db/index.js";
 import { createGarminModule } from "../src/modules/garmin/module.js";
+import { verifyApplied } from "../src/modules/proposals/verify.js";
+import { createProposalsModule } from "../src/modules/proposals/module.js";
+import type { GarminWriterFactory } from "../src/modules/proposals/executors/garmin.js";
 import { createRacesModule } from "../src/modules/races/module.js";
 import { fakeGarmin, type FakeOptions } from "./fixtures.js";
 
 /** App with the Garmin module on a temp database, signed in. `clock` controls "now". */
-export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date } = {}) {
+export interface MockWriter {
+  calls: { tool: string; args: Record<string, unknown> }[];
+  connects: () => number;
+  /** Make the next write fail with this message. */
+  failWith: (message: string | null) => void;
+  factory: GarminWriterFactory;
+}
+
+/** Stands in for the Garmin write session. No test ever reaches a real MCP server. */
+export function mockWriter(): MockWriter {
+  const calls: MockWriter["calls"] = [];
+  let connects = 0;
+  let failure: string | null = null;
+  return {
+    calls,
+    connects: () => connects,
+    failWith: (m) => void (failure = m),
+    factory: async () => {
+      connects++;
+      return {
+        async call(tool, args) {
+          calls.push({ tool, args });
+          if (failure) throw new Error(failure);
+          return { text: "ok" };
+        },
+        async close() {},
+      };
+    },
+  };
+}
+
+export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date; writes?: boolean } = {}) {
   const password = "pw";
   const config = loadConfig({
     NODE_ENV: "test",
@@ -42,12 +76,14 @@ export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Da
   const handle = openDb(config.DATA_DIR);
   const fake = fakeGarmin(opts.fake);
   const log = createLogger("silent");
-  const mod = createGarminModule({ db: handle.db, sqlite: handle.sqlite, config, connect: fake.connect, notify: async () => undefined, log, now: opts.clock, sleep: async () => undefined });
-  const app = createApp({ config, log, modules: [mod.module, createRacesModule({ db: handle.db, now: opts.clock })] });
+  const mod = createGarminModule({ db: handle.db, sqlite: handle.sqlite, config, connect: fake.connect, notify: async () => undefined, log, now: opts.clock, sleep: async () => undefined, onWorkoutsSynced: (n) => void verifyApplied(handle.db, n) });
+  const writer = mockWriter();
+  const proposals = createProposalsModule({ db: handle.db, connect: fake.connect, getWriter: writer.factory, writesEnabled: opts.writes ?? false, log, now: opts.clock });
+  const app = createApp({ config, log, modules: [mod.module, createRacesModule({ db: handle.db, now: opts.clock }), proposals] });
   const login = await req(app, "/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
   const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const { csrfToken } = (await login.json()) as { csrfToken: string };
   const get = (path: string) => req(app, path, { headers: { cookie } });
   const post = (path: string) => req(app, path, { method: "POST", headers: { cookie, "x-csrf-token": csrfToken } });
-  return { app, handle, fake, mod, get, post, cookie, csrfToken, config };
+  return { app, handle, fake, writer, mod, get, post, cookie, csrfToken, config };
 }

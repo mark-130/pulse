@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/ui";
 import { useSession } from "@/lib/auth";
 import { Login } from "@/screens/Login";
 import { Placeholder } from "@/screens/Placeholder";
+import { Proposals } from "@/screens/Proposals";
 import { Races } from "@/screens/Races";
 import { Settings } from "@/screens/Settings";
 import { Today } from "@/screens/Today";
@@ -32,7 +33,7 @@ export function App() {
           <Route path="races" element={<Races />} />
           <Route path="trends" element={<TrendsScreen />} />
           <Route path="ask" element={<Placeholder title="Ask" phase="Phase 4" />} />
-          <Route path="proposals" element={<Placeholder title="Proposals" phase="Phase 3" />} />
+          <Route path="proposals" element={<Proposals />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Placeholder title="Not found" phase="no phase" />} />
         </Route>

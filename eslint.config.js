@@ -13,4 +13,15 @@ export default tseslint.config(
       "@typescript-eslint/consistent-type-imports": "error",
     },
   },
+  {
+    // Executors write to outside systems. Only the confirm route may import one (docs/ARCHITECTURE.md, Proposal engine).
+    files: ["apps/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: [{ group: ["**/executors/*", "**/executors"], message: "Executors are importable only from apps/api/src/modules/proposals/confirm.ts." }] }],
+    },
+  },
+  {
+    files: ["apps/api/src/modules/proposals/confirm.ts", "apps/api/test/**/*.ts"],
+    rules: { "no-restricted-imports": "off" },
+  },
 );

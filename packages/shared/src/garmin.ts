@@ -117,6 +117,7 @@ export type TodayMetrics = z.infer<typeof todayMetricsSchema>;
 export const todayResponseSchema = z.object({
   date: z.string(),
   syncedAt: z.string().nullable(),
+  proposals: z.object({ pending: z.number() }),
   readiness: readinessSchema.nullable(),
   session: z.object({
     today: z.array(workoutItemSchema),

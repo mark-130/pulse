@@ -10,6 +10,8 @@ const buttonVariants = cva(
       variant: {
         primary: "bg-accent text-accent-foreground",
         secondary: "border border-border-strong bg-surface-2 text-foreground",
+        /** Destructive changes. Rose from the verdict tokens, never colour alone: the label says what is removed. */
+        danger: "bg-danger text-accent-foreground",
       },
     },
     defaultVariants: { variant: "primary" },

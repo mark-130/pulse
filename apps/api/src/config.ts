@@ -14,6 +14,8 @@ const envSchema = z.object({
   NTFY_URL: z.string().url().default("http://192.168.0.10:8090"),
   NTFY_TOPIC: z.string().min(1).default("homelab-alerts"),
   NTFY_TOKEN: z.string().default(""),
+  /** Off by default. While off the confirm flow runs and is audited but nothing is sent to Garmin (D32). */
+  PULSE_GARMIN_WRITES: z.enum(["on", "off"]).default("off"),
   WEB_DIST: z.string().optional(),
   MIGRATIONS_DIR: z.string().optional(),
 });

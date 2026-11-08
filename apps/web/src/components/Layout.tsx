@@ -78,7 +78,7 @@ function Header() {
         onClick={() => setOpen(true)}
         className="ml-auto inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full border border-border-strong bg-surface-2 px-3 text-[13px] text-muted min-[360px]:px-4"
       >
-        <PillLabel text={pillText(g?.lastOk, g?.stale)} />
+        <span><PillLabel text={pillText(g?.lastOk, g?.stale)} /></span>
       </button>
       <SyncSheet open={open} onClose={() => setOpen(false)} />
     </header>

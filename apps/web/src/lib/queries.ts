@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
+import { confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
 import { z } from "zod";
 import { api } from "./api";
 
@@ -42,4 +42,31 @@ export function useSetRaceMeta() {
       void qc.invalidateQueries({ queryKey: ["today"] });
     },
   });
+}
+
+export const useProposals = () => useQuery({ queryKey: ["proposals"], queryFn: () => api("/api/proposals", proposalsResponseSchema) });
+
+function useRefreshProposals() {
+  const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: ["proposals"] });
+    void qc.invalidateQueries({ queryKey: ["today"] });
+    void qc.invalidateQueries({ queryKey: ["week"] });
+  };
+}
+
+/** Creating a proposal changes nothing in Garmin. It only adds a pending item to review. */
+export function useCreateProposal() {
+  const refresh = useRefreshProposals();
+  return useMutation({ mutationFn: (body: CreateProposalRequest) => api("/api/proposals", confirmResponseSchema, { method: "POST", body }), onSettled: refresh });
+}
+
+export function useConfirmProposal() {
+  const refresh = useRefreshProposals();
+  return useMutation({ mutationFn: (id: string) => api(`/api/proposals/${id}/confirm`, confirmResponseSchema, { method: "POST" }), onSettled: refresh });
+}
+
+export function useRejectProposal() {
+  const refresh = useRefreshProposals();
+  return useMutation({ mutationFn: (id: string) => api(`/api/proposals/${id}/reject`, confirmResponseSchema, { method: "POST" }), onSettled: refresh });
 }

@@ -181,6 +181,7 @@ export function Today() {
   const now = new Date();
   const q = useToday();
   const data = q.data;
+  const pending = data?.proposals.pending ?? 0;
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
       <section className="flex items-center gap-4 py-2 md:col-span-6">
@@ -232,9 +233,9 @@ export function Today() {
 
       <section className="card-proposals md:col-span-2" aria-labelledby="proposals-title">
         <h2 id="proposals-title" className="t-card-title">Proposals</h2>
-        <p className="font-display my-1 text-[28px] font-bold">0</p>
-        <p className="t-secondary mb-3">Nothing is applied until you confirm.</p>
-        <Button asChild variant="secondary"><Link to="/proposals">Review</Link></Button>
+        <p className="font-display my-1 text-[28px] font-bold">{pending}</p>
+        <p className="t-secondary mb-3">{pending === 0 ? "Nothing waiting. " : ""}Nothing is applied until you confirm.</p>
+        <Button asChild variant="secondary"><Link to="/proposals">{pending === 0 ? "Open" : "Review"}</Link></Button>
       </section>
 
       {widgets.map((w) => (

@@ -8,8 +8,8 @@
   - Load and trends: get_training_status, get_training_load_balance, get_training_load_trend, get_vo2max_trend, get_running_tolerance_trend, get_endurance_score, get_race_predictions
   - History: get_activities_by_date, get_activity, get_activity_splits, get_activity_hr_in_timezones
   - Races: get_calendar_events (synced by the Phase 1 Garmin job into the race table: title, date, start_time_local, time_zone, distance_m, goal_time_seconds, is_race, primary_event, subscribed, location, url, event_uuid). The Garmin calendar is read only for NGtive Split.
-- Write tools, Phase 3 onwards, through proposals only: schedule_workout, reschedule_workout, unschedule_workout.
-- Never used in v1: delete_*, upload_*, push_workout_to_device, create_* workouts, nutrition, weigh-ins.
+- Write tools, through proposals only, called only from the Garmin executor (D32). Phase 3 allows reschedule_workout (scheduled_workout_id, calendar_date) and unschedule_workout (scheduled_workout_id). The id is the calendar entry id from get_scheduled_workouts. schedule_workout is not built. Writes are off by default: PULSE_GARMIN_WRITES=on is needed before any call is made, and with it off the confirm flow records a dry run.
+- Never used in v1 (not on any allowlist): delete_*, upload_*, push_workout_to_device, create_* workouts, nutrition, weigh-ins.
 - Phase 0 lists the server's tools and diffs them against this file. Tool names may drift.
 - Verified against the live server on 07/11/2026 (Phase 1): the server returns some upstream failures as plain text, not as a tool error, for example "Error retrieving training load data for ...: Read timed out". Text starting with "No" (no data found) is an empty result. Any other plain text is treated as a failure.
 - get_training_load_trend makes one upstream request per day and times out on long ranges, so the sync asks for 42 days. Ranged tools reject more than 90 days. The calendar accepts a two year range. The first sync backfills 180 days of activities (about one minute), later syncs fetch 14 days.
