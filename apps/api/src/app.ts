@@ -6,6 +6,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loginRequestSchema, type HealthResponse, type SessionResponse } from "@pulse/shared";
+import { buildInfo } from "./modules/update/build.js";
 import { verifyPassword } from "./auth/password.js";
 import { RateLimiter } from "./auth/rate-limit.js";
 import { SESSION_COOKIE, SESSION_MAX_AGE_S, createSessionToken, csrfMatches, readSessionToken, type SessionPayload } from "./auth/session.js";
@@ -32,7 +33,7 @@ export function createApp({ config, log, modules = [], version = "0.0.0" }: AppD
     const session = readSessionToken(getCookie(c, SESSION_COOKIE), config.PULSE_SESSION_SECRET);
     c.set("session", session);
     const path = c.req.path;
-    const isPublic = path === "/api/health" || path === "/api/auth/login" || path === "/api/auth/session";
+    const isPublic = path === "/api/health" || path === "/api/health/version" || path === "/api/auth/login" || path === "/api/auth/session";
     if (!isPublic && !session) return c.json({ error: "Not signed in" }, 401);
     const mutating = !["GET", "HEAD", "OPTIONS"].includes(c.req.method);
     if (mutating && path !== "/api/auth/login") {
@@ -47,6 +48,9 @@ export function createApp({ config, log, modules = [], version = "0.0.0" }: AppD
     const body: HealthResponse = { status: "ok", version, time: new Date().toISOString() };
     return c.json(body);
   });
+
+  // Public on purpose: the browser polls it while the app restarts, and it holds only the commit and build time.
+  app.get("/api/health/version", (c) => c.json(buildInfo(config)));
 
   app.get("/api/auth/session", (c) => {
     const session = c.get("session");

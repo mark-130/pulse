@@ -23,6 +23,13 @@ const envSchema = z.object({
   AI_MONTHLY_CAP_GBP: z.coerce.number().positive().default(5),
   /** Price tables are in USD. This is the exchange rate used to show spend in GBP. Update it when it drifts. */
   AI_USD_TO_GBP: z.coerce.number().positive().default(0.78),
+  /** Where Watchtower's HTTP API listens (the container name on a shared Docker network). */
+  WATCHTOWER_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().default("http://watchtower:8080")),
+  /** Empty means updating from the app is off. Server side only: never logged, returned or shown. */
+  WATCHTOWER_TOKEN: z.string().default(""),
+  /** Stamped into the image by CI. Empty outside CI builds. */
+  PULSE_BUILD_SHA: z.string().default(""),
+  PULSE_BUILD_TIME: z.string().default(""),
   WEB_DIST: z.string().optional(),
   MIGRATIONS_DIR: z.string().optional(),
 });

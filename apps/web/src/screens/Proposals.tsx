@@ -1,13 +1,14 @@
-import type { Proposal } from "@pulse/shared";
+import { isAppUpdate, type Proposal } from "@pulse/shared";
 import { useState } from "react";
 import { Chip } from "@/components/Chip";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button, Card, EmptyState } from "@/components/ui";
 import { formatDateTime, formatDayDate, plural } from "@/lib/format";
-import { isDestructive, kindTitle, statusLabel, verificationLabel } from "@/lib/proposals";
+import { buildText, isDestructive, kindTitle, statusLabel, targetName, verificationLabel } from "@/lib/proposals";
 import { useProposals } from "@/lib/queries";
 
 function summary(p: Proposal): string {
+  if (isAppUpdate(p)) return `Update this app, from ${buildText(p.before)} to ${buildText(p.after)}`;
   return p.kind === "garmin.reschedule" && p.after ? `${p.before.name}: ${formatDayDate(p.before.date)} to ${formatDayDate(p.after.date)}` : `${p.before.name}, ${formatDayDate(p.before.date)}, removed from the schedule`;
 }
 
@@ -17,7 +18,7 @@ function Row({ p, action }: { p: Proposal; action?: React.ReactNode }) {
     <li className="flex min-w-0 flex-col gap-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <p className="font-medium">{kindTitle(p.kind)}</p>
-        <Chip>Garmin</Chip>
+        <Chip>{targetName(p.kind)}</Chip>
         {p.status !== "pending" && <Chip tone={p.status === "applied" ? "taper" : "neutral"}>{statusLabel(p)}</Chip>}
         {verification && <Chip tone={p.result?.verification?.state === "verified" ? "taper" : "neutral"}>{verification}</Chip>}
       </div>
@@ -38,7 +39,7 @@ export function Proposals() {
   return (
     <div className="space-y-3">
       <h1 className="t-greeting">Proposals</h1>
-      <p className="t-secondary">Nothing is applied until you confirm. Changes only move workouts to another date or remove them from the Garmin schedule.</p>
+      <p className="t-secondary">Nothing is applied until you confirm. Changes move workouts to another date, remove them from the Garmin schedule, or update this app.</p>
       {data && <p className="t-secondary font-semibold">{data.writesEnabled ? "Garmin writes are on." : "Garmin writes are off. Confirmed changes are recorded as dry runs and nothing is sent to Garmin."}</p>}
       {q.isPending && <EmptyState>Loading</EmptyState>}
       {q.isError && !data && (

@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { VERIFY_WINDOW_HOURS, type Verification } from "@pulse/shared";
+import { VERIFY_WINDOW_HOURS, isGarminProposal, type Verification } from "@pulse/shared";
 import type { Db } from "../../db/index.js";
 import { proposal as proposalTable, workout } from "../../db/schema.js";
 import { appendAudit } from "./audit.js";
@@ -16,6 +16,7 @@ export function verifyApplied(db: Db, now: Date): number {
   const nowIso = now.toISOString();
   let checked = 0;
   for (const p of listHistory(db, 200)) {
+    if (!isGarminProposal(p)) continue;
     const v = p.result?.verification;
     if (p.status !== "applied" || p.result?.mode !== "live" || !v || v.state !== "waiting" || !p.decidedAt || nowIso <= p.decidedAt) continue;
     const windowEnd = v.windowEndsAt ?? new Date(Date.parse(p.decidedAt) + VERIFY_WINDOW_HOURS * 3_600_000).toISOString();

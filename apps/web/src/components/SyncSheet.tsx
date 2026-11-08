@@ -2,13 +2,15 @@ import { useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { formatDateTime } from "@/lib/format";
 import { ageText, friendlyReason } from "@/lib/stale";
-import { useSyncNow, useSyncStatus } from "@/lib/queries";
+import { useSyncNow, useSyncStatus, useVersion } from "@/lib/queries";
+import { buildLine } from "@/lib/proposals";
 import { Button } from "./ui";
 
 export function SyncSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const status = useSyncStatus();
   const sync = useSyncNow();
+  const version = useVersion();
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
@@ -42,6 +44,7 @@ export function SyncSheet({ open, onClose }: { open: boolean; onClose: () => voi
         <div className="flex justify-between gap-4"><dt className="t-secondary">Nightly backup</dt><dd>{b?.lastOk ? formatDateTime(b.lastOk) : "Not yet"}</dd></div>
       </dl>
       {status.data && !status.data.alertsEnabled && <p className="t-secondary mt-3">Failure alerts are off. This screen is the only place failures show.</p>}
+      {version.data && <p className="t-secondary mt-3">{buildLine(version.data)}</p>}
       <p className="t-secondary mt-3">Sync reads from Garmin. It never changes anything in Garmin.</p>
       {sync.isError && <p role="alert" className="mt-2 text-[13px] font-medium text-danger">{sync.error.message}</p>}
       <div className="mt-4 flex flex-wrap gap-2">

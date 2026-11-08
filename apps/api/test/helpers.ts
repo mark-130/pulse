@@ -33,6 +33,10 @@ import { aiConfigured } from "../src/modules/ai/usage.js";
 import { createProposalsModule } from "../src/modules/proposals/module.js";
 import type { GarminWriterFactory } from "../src/modules/proposals/executors/garmin.js";
 import { createRacesModule } from "../src/modules/races/module.js";
+import { runBackup } from "../src/modules/system/backup.js";
+import { buildInfo } from "../src/modules/update/build.js";
+import { createUpdateModule } from "../src/modules/update/module.js";
+import { createUpdateService } from "../src/modules/update/service.js";
 import { fakeGarmin, type FakeOptions } from "./fixtures.js";
 
 /** App with the Garmin module on a temp database, signed in. `clock` controls "now". */
@@ -67,7 +71,7 @@ export function mockWriter(): MockWriter {
   };
 }
 
-export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date; writes?: boolean; env?: Record<string, string>; llm?: LlmClient; logDestination?: DestinationStream } = {}) {
+export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date; writes?: boolean; env?: Record<string, string>; llm?: LlmClient; logDestination?: DestinationStream; fetchFn?: typeof fetch } = {}) {
   const password = "pw";
   const config = loadConfig({
     NODE_ENV: "test",
@@ -83,15 +87,21 @@ export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Da
   const log = opts.logDestination ? createLogger("info", opts.logDestination) : createLogger("silent");
   const mod = createGarminModule({ db: handle.db, sqlite: handle.sqlite, config, connect: fake.connect, notify: async () => undefined, log, now: opts.clock, sleep: async () => undefined, onWorkoutsSynced: (n) => void verifyApplied(handle.db, n) });
   const writer = mockWriter();
-  const proposals = createProposalsModule({ db: handle.db, connect: fake.connect, getWriter: writer.factory, writesEnabled: opts.writes ?? false, log, now: opts.clock });
+  // No test reaches the network: the default fetch fails loudly.
+  const fetchFn: typeof fetch = opts.fetchFn ?? (async () => { throw new Error("network is not available in tests"); });
+  const updateService = createUpdateService({ build: buildInfo(config), enabled: config.WATCHTOWER_TOKEN.trim() !== "", fetchFn, now: opts.clock });
+  const updateModule = createUpdateModule({ db: handle.db, service: updateService, now: opts.clock });
+  const backupCalls: string[] = [];
+  const app0 = { service: updateService, watchtowerUrl: config.WATCHTOWER_URL, token: config.WATCHTOWER_TOKEN, backup: () => { const f = runBackup(handle.sqlite, config.DATA_DIR, opts.clock?.()); backupCalls.push(f); return f; }, fetchFn };
+  const proposals = createProposalsModule({ db: handle.db, connect: fake.connect, getWriter: writer.factory, writesEnabled: opts.writes ?? false, app: app0, log, now: opts.clock });
   const aiNow = opts.clock ?? (() => new Date());
   const llm = opts.llm ?? null;
   const ai = createAiModule({ db: handle.db, config, llm: aiConfigured(config) ? llm : null, log, now: aiNow });
-  const app = createApp({ config, log, modules: [mod.module, createRacesModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
+  const app = createApp({ config, log, modules: [mod.module, updateModule, createRacesModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
   const login = await req(app, "/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
   const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const { csrfToken } = (await login.json()) as { csrfToken: string };
   const get = (path: string) => req(app, path, { headers: { cookie } });
   const post = (path: string) => req(app, path, { method: "POST", headers: { cookie, "x-csrf-token": csrfToken } });
-  return { app, handle, fake, writer, mod, ai, get, post, cookie, csrfToken, config };
+  return { app, handle, fake, writer, mod, ai, backupCalls, updateService, get, post, cookie, csrfToken, config };
 }

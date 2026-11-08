@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { aiStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
+import { aiStatusSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
 import { z } from "zod";
 import { api } from "./api";
 
@@ -97,5 +97,19 @@ export function useSendChat(thread: string) {
       qc.setQueryData(["chat", thread], data);
       void qc.invalidateQueries({ queryKey: ["ai-status"] });
     },
+  });
+}
+
+/** The running build. Public endpoint, so it also answers while the session is being re-read. */
+export const useVersion = () => useQuery({ queryKey: ["version"], queryFn: () => api("/api/health/version", buildInfoSchema), staleTime: 5 * MIN });
+
+export const useUpdateStatus = () => useQuery({ queryKey: ["update"], queryFn: () => api("/api/update", updateStatusSchema) });
+
+/** Reads GHCR (or the server's 10 minute cache). Changes nothing. */
+export function useCheckUpdate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api("/api/update/check", updateCheckResponseSchema, { method: "POST" }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["update"] }),
   });
 }

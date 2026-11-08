@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { asc } from "drizzle-orm";
-import { proposalSchema, proposalsResponseSchema, todayResponseSchema } from "@pulse/shared";
+import { garminProposalSchema, proposalSchema, proposalsResponseSchema, todayResponseSchema } from "@pulse/shared";
 import { auditLog, proposal as proposalTable } from "../src/db/schema.js";
 import { executeGarminProposal } from "../src/modules/proposals/executors/garmin.js";
 import { getProposal } from "../src/modules/proposals/engine.js";
@@ -271,7 +271,7 @@ describe("executors never run without a confirmed proposal", () => {
   it("refuses a direct call, and no route other than confirm touches the writer", async () => {
     const s = await setup({ writes: true });
     const p = await s.created(await s.move("2026-11-10"));
-    await expect(executeGarminProposal(p, { writesEnabled: true, getWriter: s.t.writer.factory })).rejects.toThrow(/not being confirmed/);
+    await expect(executeGarminProposal(garminProposalSchema.parse(p), { writesEnabled: true, getWriter: s.t.writer.factory })).rejects.toThrow(/not being confirmed/);
     await s.reject(p.id);
     await s.list();
     await s.t.get("/api/today");

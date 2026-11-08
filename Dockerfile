@@ -22,6 +22,11 @@ COPY --from=build /repo/apps/api/dist/server.mjs ./server.mjs
 COPY --from=build /repo/apps/api/drizzle ./drizzle
 COPY --from=build /repo/apps/web/dist ./web
 RUN mkdir /data && chown 1000:1000 /data
+# Build identity from CI (D39). Last on purpose, so a new commit does not rebuild the layers above. Empty outside CI.
+ARG GIT_SHA=""
+ARG BUILD_TIME=""
+LABEL org.opencontainers.image.revision=$GIT_SHA org.opencontainers.image.created=$BUILD_TIME
+ENV PULSE_BUILD_SHA=$GIT_SHA PULSE_BUILD_TIME=$BUILD_TIME
 USER 1000:1000
 EXPOSE 8200
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD wget -qO- http://127.0.0.1:8200/api/health || exit 1

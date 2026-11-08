@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Card } from "@/components/ui";
+import { UpdateCard } from "@/components/UpdateCard";
 import { useAiStatus } from "@/lib/queries";
 import { formatDate, plural } from "@/lib/format";
 import { useAuthActions } from "@/lib/auth";
@@ -68,6 +69,7 @@ export function Settings() {
         </div>
       </Card>
       <AiUsage />
+      <UpdateCard />
       <Button variant="secondary" onClick={() => void logout()}>
         Sign out
       </Button>

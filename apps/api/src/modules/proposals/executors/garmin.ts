@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { APP_NAME, DRY_RUN_TEXT, type Proposal } from "@pulse/shared";
+import { APP_NAME, DRY_RUN_TEXT, type GarminProposal } from "@pulse/shared";
 import { sanitiseError } from "../../../notify.js";
 import { parseToolResult } from "../../garmin/client.js";
 import { isBeingConfirmed } from "../confirmations.js";
@@ -58,7 +58,7 @@ export interface ExecutorDeps {
 }
 
 /** Runs one confirmed proposal. With writes off it records a dry run and does not touch Garmin at all, not even a connection. */
-export async function executeGarminProposal(p: Proposal, deps: ExecutorDeps): Promise<ExecutionResult> {
+export async function executeGarminProposal(p: GarminProposal, deps: ExecutorDeps): Promise<ExecutionResult> {
   if (!isBeingConfirmed(p.id)) throw new Error("Refusing to run: this proposal is not being confirmed.");
   if (p.status !== "pending") throw new Error("Refusing to run: the proposal is not pending.");
   if (!deps.writesEnabled) return { mode: "dry_run", message: `${DRY_RUN_TEXT}. The change was recorded only.` };

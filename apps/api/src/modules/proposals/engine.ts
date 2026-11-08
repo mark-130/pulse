@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { PROPOSAL_EXPIRY_HOURS, proposalSchema, type Proposal, type ProposalKind, type WorkoutState } from "@pulse/shared";
+import { APP_IMAGE, PROPOSAL_EXPIRY_HOURS, isGarminProposal, proposalSchema, type BuildState, type GarminProposal, type Proposal, type WorkoutState } from "@pulse/shared";
 import { addDays, londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { proposal as proposalTable, workout } from "../../db/schema.js";
@@ -21,7 +21,7 @@ export class ProposalError extends Error {
 }
 
 /** What state_hash covers: the fields a change depends on. If Garmin differs at confirm time the proposal is stale. */
-export function stateHashOf(state: WorkoutState | null): string {
+export function stateHashOf(state: WorkoutState | BuildState | null): string {
   return canonicalHash(state);
 }
 
@@ -29,8 +29,13 @@ export function workoutState(row: typeof workout.$inferSelect): WorkoutState {
   return { scheduledId: row.garminScheduledId, name: row.name, date: row.date, durationS: row.durationS, completed: row.completed };
 }
 
+/** The audit target of a proposal. */
+export function targetOf(p: Proposal): string {
+  return isGarminProposal(p) ? `${p.kind}:${p.before.scheduledId}` : "app.update:app";
+}
+
 export interface NewProposal {
-  kind: ProposalKind;
+  kind: GarminProposal["kind"];
   createdBy: "user" | "ai";
   rationale: string | null;
   before: WorkoutState;
@@ -47,7 +52,7 @@ const PENDING_BLOCK = "A change for this workout is already waiting. Confirm or 
  */
 export function createProposal(db: Db, input: NewProposal): Proposal {
   expireDue(db, input.now);
-  const sameWorkout = listPending(db).filter((p) => p.before.scheduledId === input.before.scheduledId);
+  const sameWorkout = listPending(db).filter(isGarminProposal).filter((p) => p.before.scheduledId === input.before.scheduledId);
   for (const p of sameWorkout) {
     const sameChange = p.kind === input.kind && JSON.stringify(p.after) === JSON.stringify(input.after);
     if (sameChange) return p;
@@ -133,7 +138,7 @@ export function expireDue(db: Db, now: Date): number {
     if (p.expiresAt > nowIso) continue;
     const res = db.update(proposalTable).set({ status: "expired", decidedAt: nowIso }).where(and(eq(proposalTable.id, p.id), eq(proposalTable.status, "pending"))).run();
     if (res.changes) {
-      appendAudit(db, { ts: nowIso, actor: "system", action: "proposal.expired", target: `${p.kind}:${p.before.scheduledId}`, payload: { id: p.id }, result: "expired" });
+      appendAudit(db, { ts: nowIso, actor: "system", action: "proposal.expired", target: targetOf(p), payload: { id: p.id }, result: "expired" });
       n++;
     }
   }
@@ -148,7 +153,7 @@ export function rejectProposal(db: Db, id: string, now: Date): Proposal {
   const nowIso = now.toISOString();
   db.transaction(() => {
     db.update(proposalTable).set({ status: "rejected", decidedAt: nowIso }).where(and(eq(proposalTable.id, id), eq(proposalTable.status, "pending"))).run();
-    appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.rejected", target: `${p.kind}:${p.before.scheduledId}`, payload: { id }, result: "rejected" });
+    appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.rejected", target: targetOf(p), payload: { id }, result: "rejected" });
   });
   return getProposal(db, id) as Proposal;
 }
@@ -173,4 +178,36 @@ export function proposeUnschedule(db: Db, scheduledId: string, now: Date): Propo
   if (row.date < londonDate(now)) throw new ProposalError("A past workout cannot be removed.", 400);
   const before = workoutState(row);
   return createProposal(db, { kind: "garmin.unschedule", createdBy: "user", rationale: null, before, after: null, now });
+}
+
+/**
+ * Creates the app.update proposal. Idempotent: a pending one is returned as it is. The new build comes from the last
+ * update check and is null when there is none, because a failed check must not block updating (D39).
+ */
+export function proposeAppUpdate(db: Db, input: { running: BuildState; latest: BuildState | null; now: Date }): Proposal {
+  expireDue(db, input.now);
+  const existing = listPending(db).find((p) => p.kind === "app.update");
+  if (existing) return existing;
+  const id = randomUUID();
+  const nowIso = input.now.toISOString();
+  db.transaction(() => {
+    db.insert(proposalTable)
+      .values({
+        id,
+        kind: "app.update",
+        targetSystem: "app",
+        payload: { image: APP_IMAGE },
+        before: input.running,
+        after: input.latest,
+        rationale: null,
+        createdBy: "user",
+        stateHash: stateHashOf(input.running),
+        status: "pending",
+        createdAt: nowIso,
+        expiresAt: new Date(input.now.getTime() + PROPOSAL_EXPIRY_HOURS * 3_600_000).toISOString(),
+      })
+      .run();
+    appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.created", target: "app.update:app", payload: { id, before: input.running, after: input.latest }, result: "pending" });
+  });
+  return getProposal(db, id) as Proposal;
 }

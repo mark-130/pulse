@@ -5,3 +5,4 @@ export * from "./garmin.js";
 export * from "./races.js";
 export * from "./proposals.js";
 export * from "./ai.js";
+export * from "./update.js";

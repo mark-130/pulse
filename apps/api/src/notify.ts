@@ -39,6 +39,7 @@ export function sanitiseError(err: unknown): string {
   return raw
     .replace(/https?:\/\/\S+/g, "[url]")
     .replace(/sk-ant-[A-Za-z0-9_-]+/g, "[redacted]")
+    .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
     .replace(/(token|key|secret|password)=\S+/gi, "$1=[redacted]")
     .slice(0, 300);
 }

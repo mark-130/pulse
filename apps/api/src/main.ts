@@ -12,7 +12,12 @@ import { verifyApplied } from "./modules/proposals/verify.js";
 import { createAnthropicClient } from "./modules/ai/anthropic.js";
 import { createAiModule } from "./modules/ai/module.js";
 import { aiConfigured } from "./modules/ai/usage.js";
+import { reconcileUpdates } from "./modules/proposals/outcome.js";
 import { createRacesModule } from "./modules/races/module.js";
+import { runBackup } from "./modules/system/backup.js";
+import { buildInfo } from "./modules/update/build.js";
+import { createUpdateModule } from "./modules/update/module.js";
+import { createUpdateService } from "./modules/update/service.js";
 import { createNotifier, ntfyEnabled } from "./notify.js";
 
 const log = createLogger();
@@ -47,8 +52,13 @@ const { module: aiModule } = createAiModule({
 log.info(aiConfigured(config) ? "ai on" : "ai off, no key set");
 const writesEnabled = config.PULSE_GARMIN_WRITES === "on";
 log.info({ writes: writesEnabled ? "on" : "off" }, writesEnabled ? "garmin writes on" : "garmin writes off, confirmed changes are dry runs");
+const updateService = createUpdateService({ build: buildInfo(config), enabled: config.WATCHTOWER_TOKEN.trim() !== "" });
+log.info({ build: updateService.build.shortSha }, updateService.enabled ? "app updates from the app on" : "app updates from the app off, no watchtower token");
+// A previous update may have restarted us: settle its outcome now.
+reconcileUpdates(db, updateService.build, new Date());
 modules.push(
   garminModule,
+  createUpdateModule({ db, service: updateService }),
   createRacesModule({ db }),
   aiModule,
   createProposalsModule({
@@ -56,6 +66,7 @@ modules.push(
     connect: connectGarmin,
     getWriter: createMcpWriterFactory(config.GARMIN_MCP_URL),
     writesEnabled,
+    app: { service: updateService, watchtowerUrl: config.WATCHTOWER_URL, token: config.WATCHTOWER_TOKEN, backup: () => runBackup(sqlite, config.DATA_DIR), fetchFn: fetch },
     log,
     onApplied: () => void garmin.runNow().catch(() => undefined),
   }),

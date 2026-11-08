@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { buildStateSchema } from "./update.js";
 
 /**
  * Set to true only once the sync conflict probe result is written into docs/DECISIONS.md.
@@ -10,7 +11,7 @@ export const PLAN_APP_NOTE = "The plan app may revert this.";
 export const PROPOSAL_EXPIRY_HOURS = 24;
 export const DRY_RUN_TEXT = "Dry run: nothing will be sent to Garmin";
 
-export const proposalKindSchema = z.enum(["garmin.reschedule", "garmin.unschedule"]);
+export const proposalKindSchema = z.enum(["garmin.reschedule", "garmin.unschedule", "app.update"]);
 export type ProposalKind = z.infer<typeof proposalKindSchema>;
 export const proposalStatusSchema = z.enum(["pending", "applied", "rejected", "expired", "stale", "failed"]);
 export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
@@ -50,25 +51,58 @@ export const proposalResultSchema = z
     /** Present when stale: the workout as Garmin has it now, or null if it is gone. */
     live: workoutStateSchema.nullable().optional(),
     verification: verificationSchema.optional(),
+    /** app.update only. requested: Watchtower was called and the app is expected to restart. updated and not_completed are recorded by the next boot or the first request after the timeout. */
+    update: z
+      .object({
+        state: z.enum(["requested", "updated", "not_completed"]),
+        calledAt: z.string(),
+        /** Backup file name (no path). */
+        backup: z.string().nullable(),
+        /** HTTP status Watchtower answered with, or null if the connection dropped, which is expected while it restarts us. */
+        watchtowerStatus: z.number().nullable(),
+        resolvedAt: z.string().nullable(),
+        /** The build the app reported when the outcome was recorded. */
+        runningSha: z.string().nullable(),
+      })
+      .optional(),
   })
   .nullable();
 
-export const proposalSchema = z.object({
+const proposalBase = {
   id: z.string(),
-  kind: proposalKindSchema,
-  targetSystem: z.literal("garmin"),
   status: proposalStatusSchema,
   createdBy: z.enum(["user", "ai"]),
   rationale: z.string().nullable(),
-  before: workoutStateSchema,
-  /** The workout after the change. Null when the change removes it from the schedule. */
-  after: workoutStateSchema.nullable(),
   createdAt: z.string(),
   expiresAt: z.string(),
   decidedAt: z.string().nullable(),
   result: proposalResultSchema,
+};
+
+export const garminProposalSchema = z.object({
+  ...proposalBase,
+  kind: z.enum(["garmin.reschedule", "garmin.unschedule"]),
+  targetSystem: z.literal("garmin"),
+  before: workoutStateSchema,
+  /** The workout after the change. Null when the change removes it from the schedule. */
+  after: workoutStateSchema.nullable(),
 });
-export type Proposal = z.infer<typeof proposalSchema>;
+export type GarminProposal = z.infer<typeof garminProposalSchema>;
+
+/** Updating this app through Watchtower. before is the running build, after is the newest build the check found (nulls when the check failed). */
+export const appUpdateProposalSchema = z.object({
+  ...proposalBase,
+  kind: z.literal("app.update"),
+  targetSystem: z.literal("app"),
+  before: buildStateSchema,
+  after: buildStateSchema.nullable(),
+});
+export type AppUpdateProposal = z.infer<typeof appUpdateProposalSchema>;
+
+export const proposalSchema = z.union([garminProposalSchema, appUpdateProposalSchema]);
+export type Proposal = GarminProposal | AppUpdateProposal;
+export const isGarminProposal = (p: Proposal): p is GarminProposal => p.kind !== "app.update";
+export const isAppUpdate = (p: Proposal): p is AppUpdateProposal => p.kind === "app.update";
 
 export const proposalsResponseSchema = z.object({
   writesEnabled: z.boolean(),
@@ -82,6 +116,7 @@ export type ProposalsResponse = z.infer<typeof proposalsResponseSchema>;
 export const createProposalRequestSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("garmin.reschedule"), scheduledId: z.string().min(1), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
   z.object({ kind: z.literal("garmin.unschedule"), scheduledId: z.string().min(1) }),
+  z.object({ kind: z.literal("app.update") }),
 ]);
 export type CreateProposalRequest = z.infer<typeof createProposalRequestSchema>;
 

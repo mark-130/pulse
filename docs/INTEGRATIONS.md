@@ -31,6 +31,20 @@ JSON POST to http://192.168.0.10:8090 (root URL), topic homelab-alerts, Bearer t
 - Prices checked 08/11/2026 at https://platform.claude.com/docs/en/about-claude/pricing, USD per million tokens: Sonnet 5.5 input 2, output 10, 5 minute cache write 2.50, cache read 0.10. Haiku 5.5 (prompts up to 100,000 tokens) input 0.10, output 0.50, cache write 0.125, cache read 0.01. The table and its date are in apps/api/src/modules/ai/pricing.ts and shown on Settings. Recheck them when the page changes.
 - Retries once, 60 second timeout. A failed call is logged as one sanitised line and never contains the key.
 
+## Updating the app (Watchtower HTTP API, D39)
+NGtive Split asks Watchtower to update only itself: GET WATCHTOWER_URL/v1/update?image=ghcr.io/mark-130/pulse with Authorization: Bearer WATCHTOWER_TOKEN. The image is fixed in code. Without WATCHTOWER_TOKEN the Settings card still shows the build and the check, and Update now says "Updating from the app is off. Set WATCHTOWER_TOKEN to turn it on."
+
+Add these variables to the Watchtower container or stack (not done by this repo, and the first two are required together):
+- WATCHTOWER_HTTP_API_UPDATE=true
+- WATCHTOWER_HTTP_API_TOKEN=<a long random value>. Put the same value in this app's stack as WATCHTOWER_TOKEN.
+- WATCHTOWER_HTTP_API_PERIODIC_POLLS=true
+
+**Warning: without WATCHTOWER_HTTP_API_PERIODIC_POLLS=true, switching the HTTP API on turns off Watchtower's own schedule, so the nightly 04:00 updates stop.** Set it in the same change and check the next morning that the schedule still runs.
+
+Network (checked 08/11/2026): the Watchtower container is on watchtower_default only, not on homelab, so http://watchtower:8080 does not resolve from this app today. Either attach Watchtower to homelab as well (it then resolves as watchtower on port 8080), or add watchtower_default as an external network to this app's compose service (it fails to deploy if that network is ever removed), or point WATCHTOWER_URL at an address that works. Watchtower publishes no port, so no host port is exposed.
+
+The package must be public (D13) for both the anonymous update check and Watchtower's own pulls. The update check reads the image labels from GHCR without credentials, so a private package shows "Could not check" with the reason under Details.
+
 ## Open-Meteo (Phase 4, optional)
 No key. Daily and race-week forecast from home coordinates in settings.
 
