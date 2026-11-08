@@ -1,10 +1,11 @@
+import { sevenDayRow, type DayKind } from "@/lib/races";
 import { SportIcon } from "@/components/SportIcon";
 import { KindNote } from "@/components/KindNote";
 import { Activity, Battery, Check, Heart, Minus, Moon, Sparkles, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { RaceItem, TodayResponse } from "@pulse/shared";
-import { AiChip, Chip } from "@/components/Chip";
+import { AiChip, Chip, PriorityChip } from "@/components/Chip";
 import { Orb } from "@/components/Orb";
 import { Button } from "@/components/ui";
 import { formatClock, formatDate, formatDayDate, formatDurationMin, formatKm, formatRaceKm, formatRaceTime, formatTime, humanise, plural } from "@/lib/format";
@@ -93,13 +94,17 @@ function Session({ data }: { data: TodayResponse }) {
   );
 }
 
-function SevenDays({ race }: { race: RaceItem | null }) {
+function SevenDays({ today, race }: { today: string; race: RaceItem | null }) {
+  const kinds = sevenDayRow(today, race);
+  const style: Record<DayKind, string> = {
+    race: "border-accent bg-accent",
+    today: "border-accent",
+    taper: "border-transparent bg-[var(--chip-taper-bg)]",
+    plain: "border-border-strong",
+  };
   return (
     <div className="my-3 flex gap-2" aria-hidden="true">
-      {Array.from({ length: 7 }, (_, i) => {
-        const isRaceDay = race !== null && race.daysUntil === i;
-        return <span key={i} className={`size-7 rounded-full border ${isRaceDay ? "border-accent bg-accent" : i === 0 ? "border-accent" : "border-border-strong"}`} />;
-      })}
+      {kinds.map((k, i) => <span key={i} className={`size-7 rounded-full border ${style[k]}`} />)}
     </div>
   );
 }
@@ -119,21 +124,26 @@ function Race({ data }: { data: TodayResponse }) {
             </div>
             <p className="text-right"><span className="t-countdown">{r.daysUntil}</span><span className="t-secondary block">{r.daysUntil === 1 ? "day" : "days"}</span></p>
           </div>
-          <SevenDays race={r} />
+          <SevenDays today={data.date} race={r} />
           <div className="flex flex-wrap gap-2">
+            <PriorityChip priority={r.priority} suggested={r.priorityInferred} />
             {r.distanceM !== null && <Chip>{formatRaceKm(r.distanceM)}</Chip>}
             <Chip>{r.goalTimeSeconds !== null ? `Goal ${formatClock(r.goalTimeSeconds)}` : "No goal time"}</Chip>
+            {r.taper.start ? <Chip tone="taper">{r.taper.start > data.date ? `Taper from ${formatDate(r.taper.start)}` : "In the taper"}</Chip> : <Chip>No taper</Chip>}
             {!r.isRace && <Chip>Not flagged as a race</Chip>}
           </div>
+          <p className="t-secondary mt-2">{r.taper.status}</p>
+          {r.flags.some((f) => f.kind === "unverified_time") && <p className="t-secondary mt-1 flex items-start gap-1"><TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-[color:var(--verdict-easy)]" />Start time unverified.</p>}
         </>
       ) : (
         <>
           <h2 id="race-title" className="t-card-title">No race in Garmin</h2>
           <p className="t-secondary">Add races in Garmin Connect. They appear after the next sync.</p>
-          <SevenDays race={null} />
+          <SevenDays today={data.date} race={null} />
         </>
       )}
-      <p className="t-secondary mt-3">{f ? `Then: ${f.title}, ${formatDate(f.date)} (${plural(f.daysUntil, "day")})` : "Following race: none"}</p>
+      <p className="mt-3"><Link to="/races" className="inline-flex min-h-11 items-center text-[15px] font-semibold text-accent underline">All races</Link></p>
+      <p className="t-secondary">{f ? `Then: ${f.title}, ${formatDate(f.date)} (${plural(f.daysUntil, "day")})` : "Following race: none"}</p>
       <Synced at={data.syncedAt} />
     </section>
   );

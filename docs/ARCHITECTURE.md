@@ -8,7 +8,7 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - activity: garmin_activity_id, name, type, start_local, date, distance_m, duration_s, avg_hr, max_hr, calories, elevation_gain_m, first_seen, last_seen (from get_activities_by_date, history kept)
 - workout: garmin_scheduled_id, garmin_workout_id, date, name, sport, duration_s, completed, first_seen, last_seen
 - race (from Garmin get_calendar_events, replaced on each sync by event_uuid): event_uuid, title, date, start_time_local, time_zone, distance_m, goal_time_seconds, is_race, primary_event, subscribed, location, url, first_seen, last_seen
-- race_meta (owned by NGtive Split, never overwritten by sync): meta_key, priority (A, B, C), type (road, trail), goal_override_s, notes, updated_at. meta_key is event_uuid when present, otherwise the date plus the normalised title (lower case, punctuation removed, spaces collapsed). Edits are local database writes with no confirm tap, because nothing outside NGtive Split changes.
+- race_meta (built in Phase 2, D29; owned by NGtive Split, never overwritten by sync): meta_key, priority (A, B, C), type (road, trail), goal_override_s, notes, updated_at. meta_key is event_uuid when present, otherwise the date plus the normalised title (lower case, punctuation removed, spaces collapsed). Edits are local database writes with no confirm tap, because nothing outside NGtive Split changes.
 - proposal, audit_log (see below)
 - sync_state: job, last_ok, last_attempt, last_error, consecutive_failures, last_alert_at, detail
 - briefing: date, text, data JSON, model, tokens
@@ -16,6 +16,12 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - ai_usage: ts, feature, model, input_tokens, output_tokens, cost_gbp
 - settings: key, value JSON (taper overrides, home coordinates, Phase 5 calendar allowlist)
 - secret: name, ciphertext (AES-256-GCM, key from PULSE_SECRET_KEY)
+
+## Races (Phase 2)
+- Rules live in apps/api/src/modules/races/logic.ts as pure functions (inference, taper, recovery, flags, warnings), tested against the TRAINING.md fixtures with no race names in production code.
+- GET /api/races returns every active race with the effective priority, type, distance and goal, taper and recovery dates, data quality flags and the warnings. It reads the database only.
+- PUT /api/races/meta {key, priority, type} writes race_meta for one race (key is race.event_key). null clears a field and both null removes the row. The response carries the previous values so the screen can offer an undo. Session and CSRF are required. No confirm tap, because only our own database changes and Garmin is never written (D29).
+- Today reads its next race from the same function, so the chips on the race card match the Races screen.
 
 ## Auth
 Single user. Password checked against a scrypt hash (salt:hash in hex) in PULSE_PASSWORD_HASH. Signed httpOnly SameSite=Lax session cookie (30 days). CSRF token header on every non-GET. Login rate limit: 5 attempts per 15 minutes per IP. Tailscale identity headers are not trusted, because LAN clients can spoof them.

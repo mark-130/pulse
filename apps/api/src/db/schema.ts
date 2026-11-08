@@ -96,6 +96,16 @@ export const proposal = sqliteTable("proposal", {
   result: json("result"),
 });
 
+/** Pulse-owned race metadata. Never overwritten by sync. meta_key matches race.event_key. See D29. */
+export const raceMeta = sqliteTable("race_meta", {
+  metaKey: text("meta_key").primaryKey(),
+  priority: text("priority", { enum: ["A", "B", "C"] }),
+  type: text("type", { enum: ["road", "trail"] }),
+  goalOverrideS: real("goal_override_s"),
+  notes: text("notes"),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const auditLog = sqliteTable("audit_log", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ts: text("ts").notNull(),

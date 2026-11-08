@@ -59,6 +59,15 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - Metric tiles, two columns: label, value, 4px gradient bar, status line.
 - Proposals card: count, "Nothing is applied until you confirm.", Review button.
 
+## Races screen (Phase 2)
+- Order: warnings (action first, then info), the Unclassified card, "Upcoming, next first", then "Recent" for races in the last 14 days.
+- Race card: name, date and start time in the race's own zone, location, countdown (or Done), chips (priority, type, distance, goal, taper start), the taper status line, a "Taper advice" disclosure (advice only, not medical guidance), the recovery line, data quality flags with a warning icon and text, and the priority (A, B, C) and type (Road, Trail) controls.
+- Priority chips: A is the accent fill, B the violet chip, C the neutral chip. The letter is always in the text. Values that are only inferred say "suggested". Controls are 44px pill buttons using aria-pressed, so the state is not colour alone.
+- Unclassified card: races whose priority or type is still inferred, each with a "Use B, road" button that accepts the suggestion.
+- Undo: after every change a toast above the tab bar says what was saved, with a 44px Undo button for 12 seconds.
+- Cluster warning with an undecided A race: a full width button per race, "Make X the A race".
+- The Today race card shows the priority, distance, goal and taper chips, the taper status line, tinted taper days in the seven day row, and an "All races" link.
+
 ## Today order
 Orb hero, briefing, prompt chips, verdict, session, race, metrics, proposals. Module widgets register a card (1x1 or 2x1) into the grid after these. Reordering is a later feature.
 

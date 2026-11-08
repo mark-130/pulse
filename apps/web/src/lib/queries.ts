@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { racesResponseSchema, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
+import { raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
 import { z } from "zod";
 import { api } from "./api";
 
@@ -30,4 +30,16 @@ export function useOnline(): boolean {
     refetchInterval: 15_000,
     networkMode: "always",
   }).data ?? true;
+}
+
+/** Local priority and type for one race. A write to our own database only, nothing goes to Garmin. */
+export function useSetRaceMeta() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { key: string } & RaceMetaInput) => api("/api/races/meta", raceMetaResponseSchema, { method: "PUT", body: v }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["races"] });
+      void qc.invalidateQueries({ queryKey: ["today"] });
+    },
+  });
 }

@@ -2,27 +2,20 @@ import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import type { z } from "zod";
 import type {
   ActivityItem,
-  RaceItem,
-  RacesResponse,
   Readiness,
   TodayResponse,
   TrendsResponse,
   WeekResponse,
   WorkoutItem,
 } from "@pulse/shared";
-import { addDays, daysBetween, londonDate, weekStart } from "../../dates.js";
+import { addDays, londonDate, weekStart } from "../../dates.js";
 import type { Db } from "../../db/index.js";
-import { activity, garminSnapshot, race, syncState, workout } from "../../db/schema.js";
-import { groupStatuses, oldestOk } from "./freshness.js";
+import { activity, garminSnapshot, workout } from "../../db/schema.js";
+import { lastGarminOk } from "./freshness.js";
+import { getRaceView } from "../races/data.js";
 import * as up from "./upstream.js";
 
 /** Reads the database only. Never calls Garmin. */
-
-/** Oldest successful fetch among the given groups. Falls back to the job time for a database from before per-kind tracking. */
-export function lastGarminOk(db: Db, groups: string[] = ["plan", "readiness"]): string | null {
-  const job = db.select().from(syncState).where(eq(syncState.job, "garmin")).get()?.lastOk ?? null;
-  return oldestOk(groupStatuses(db, new Date(), 90), groups, job);
-}
 
 function latestSnapshot<T>(db: Db, kind: string, schema: z.ZodType<T>, today: string): { date: string; data: T } | null {
   const row = db
@@ -59,33 +52,6 @@ const toActivity = (a: typeof activity.$inferSelect): ActivityItem => ({
   calories: a.calories,
 });
 
-const toRace = (r: typeof race.$inferSelect, today: string): RaceItem => ({
-  eventKey: r.eventKey,
-  eventUuid: r.eventUuid,
-  title: r.title,
-  date: r.date,
-  startTimeLocal: r.startTimeLocal,
-  timeZone: r.timeZone,
-  distanceM: r.distanceM,
-  goalTimeSeconds: r.goalTimeSeconds,
-  isRace: r.isRace,
-  primaryEvent: r.primaryEvent,
-  subscribed: r.subscribed,
-  location: r.location,
-  url: r.url,
-  daysUntil: daysBetween(today, r.date),
-});
-
-export function upcomingRaces(db: Db, today: string): RaceItem[] {
-  return db
-    .select()
-    .from(race)
-    .where(and(eq(race.active, true), gte(race.date, today)))
-    .orderBy(asc(race.date))
-    .all()
-    .map((r) => toRace(r, today));
-}
-
 function pickReadiness(db: Db, today: string): Readiness | null {
   const snap = latestSnapshot(db, "training_readiness", up.readinessSchema, today);
   if (!snap) return null;
@@ -112,7 +78,7 @@ export function getToday(db: Db, now: Date): TodayResponse {
   const bb = latestSnapshot(db, "body_battery", up.bodyBatterySchema, today);
   const rhrValue = rhr?.data.allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE?.[0]?.value ?? stats?.data.resting_heart_rate_bpm ?? null;
   const bbDay = bb?.data[0];
-  const races = upcomingRaces(db, today);
+  const races = getRaceView(db, now).races.filter((r) => !r.past);
   const next = db
     .select()
     .from(workout)
@@ -212,8 +178,4 @@ export function getTrends(db: Db, now: Date): TrendsResponse {
         }
       : null,
   };
-}
-
-export function getRaces(db: Db, now: Date): RacesResponse {
-  return { syncedAt: lastGarminOk(db, ["plan"]), races: upcomingRaces(db, londonDate(now)) };
 }

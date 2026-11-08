@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db/index.js";
 import { createGarminModule } from "../src/modules/garmin/module.js";
+import { createRacesModule } from "../src/modules/races/module.js";
 import { fakeGarmin, type FakeOptions } from "./fixtures.js";
 
 /** App with the Garmin module on a temp database, signed in. `clock` controls "now". */
@@ -42,7 +43,7 @@ export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Da
   const fake = fakeGarmin(opts.fake);
   const log = createLogger("silent");
   const mod = createGarminModule({ db: handle.db, sqlite: handle.sqlite, config, connect: fake.connect, notify: async () => undefined, log, now: opts.clock, sleep: async () => undefined });
-  const app = createApp({ config, log, modules: [mod.module] });
+  const app = createApp({ config, log, modules: [mod.module, createRacesModule({ db: handle.db, now: opts.clock })] });
   const login = await req(app, "/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
   const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const { csrfToken } = (await login.json()) as { csrfToken: string };

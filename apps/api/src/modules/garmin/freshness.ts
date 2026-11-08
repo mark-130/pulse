@@ -44,3 +44,10 @@ export function oldestOk(groups: GroupStatus[] | null, ids: string[], fallback: 
   if (picked.some((g) => g.lastOk === null)) return null;
   return picked.map((g) => g.lastOk as string).sort()[0] ?? null;
 }
+
+/** Oldest successful fetch among the given groups. Falls back to the job time for a database from before per-kind tracking. */
+export function lastGarminOk(db: Db, groups: string[] = ["plan", "readiness"]): string | null {
+  const job = db.select().from(syncState).where(eq(syncState.job, "garmin")).get()?.lastOk ?? null;
+  return oldestOk(groupStatuses(db, new Date(), 90), groups, job);
+}
+

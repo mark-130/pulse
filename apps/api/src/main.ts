@@ -6,6 +6,7 @@ import { createLogger } from "./logger.js";
 import { createMcpConnector } from "./modules/garmin/client.js";
 import { createGarminModule } from "./modules/garmin/module.js";
 import { modules, startJobs } from "./modules/registry.js";
+import { createRacesModule } from "./modules/races/module.js";
 import { createNotifier, ntfyEnabled } from "./notify.js";
 
 const log = createLogger();
@@ -28,7 +29,7 @@ const { module: garminModule, garmin } = createGarminModule({
   notify: createNotifier(config, log),
   log,
 });
-modules.push(garminModule);
+modules.push(garminModule, createRacesModule({ db }));
 const app = createApp({ config, log, modules });
 const crons = startJobs(modules, log);
 // Catch up shortly after boot instead of waiting up to 30 minutes.

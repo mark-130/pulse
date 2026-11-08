@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { raceViewSchema, type RaceView } from "./races.js";
 
 /** Response shapes for the read-only Garmin views. Validated on the API and in the browser. */
 
@@ -26,23 +27,9 @@ export const activityItemSchema = z.object({
 });
 export type ActivityItem = z.infer<typeof activityItemSchema>;
 
-export const raceItemSchema = z.object({
-  eventKey: z.string(),
-  eventUuid: z.string().nullable(),
-  title: z.string(),
-  date: z.string(),
-  startTimeLocal: z.string().nullable(),
-  timeZone: z.string().nullable(),
-  distanceM: z.number().nullable(),
-  goalTimeSeconds: z.number().nullable(),
-  isRace: z.boolean(),
-  primaryEvent: z.boolean(),
-  subscribed: z.boolean(),
-  location: z.string().nullable(),
-  url: z.string().nullable(),
-  daysUntil: z.number(),
-});
-export type RaceItem = z.infer<typeof raceItemSchema>;
+/** Today shows the same enriched race the Races screen does. */
+export const raceItemSchema = raceViewSchema;
+export type RaceItem = RaceView;
 
 export const jobStatusSchema = z.object({
   lastOk: z.string().nullable(),
@@ -168,5 +155,3 @@ export const trendsResponseSchema = z.object({
 });
 export type TrendsResponse = z.infer<typeof trendsResponseSchema>;
 
-export const racesResponseSchema = z.object({ syncedAt: z.string().nullable(), races: z.array(raceItemSchema) });
-export type RacesResponse = z.infer<typeof racesResponseSchema>;

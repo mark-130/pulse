@@ -9,7 +9,7 @@ import { syncState } from "../../db/schema.js";
 import type { Logger } from "../../logger.js";
 import { ntfyEnabled, type Notifier } from "../../notify.js";
 import type { GarminConnector } from "./client.js";
-import { getRaces, getToday, getTrends, getWeek } from "./queries.js";
+import { getToday, getTrends, getWeek } from "./queries.js";
 import { groupStatuses, oldestOk } from "./freshness.js";
 import { runGarminSync } from "./sync.js";
 import { runBackup } from "../system/backup.js";
@@ -87,7 +87,6 @@ export function createGarminModule(deps: GarminModuleDeps): { module: Module<Hon
         return c.json(getWeek(db, clock(), q.data.start));
       });
       app.get("/api/trends", (c) => c.json(getTrends(db, clock())));
-      app.get("/api/races", (c) => c.json(getRaces(db, clock())));
       app.get("/api/sync/status", (c) => {
         const now = clock();
         const job = jobStatus(db, "garmin", now, GARMIN_STALE_AFTER_MIN);

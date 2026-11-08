@@ -30,11 +30,20 @@
 - 10K, A: 7 days. Final week at 70 to 80 percent of normal volume. Keep short race pace work. Last hard session 4 to 5 days out. Easy day plus strides the day before.
 - 10K, B: 4 days. About 20 percent volume cut. Last hard session 3 to 4 days out.
 - Half, A: 10 days. Volume falls to about 75 percent, then about 60 percent. Last long run 8 to 10 days out and shortened. Keep a few race pace reps.
-- Half, B: 5 to 7 days. About 25 percent volume cut. Last long run at least 7 days out.
+- Half, B: 5 to 7 days (built as 6, D30). About 25 percent volume cut. Last long run at least 7 days out.
+- Marathon, B: not in the original defaults. Built as 10 days with about a 25 to 30 percent volume cut and the last long run at least 10 days out (D30).
 - Marathon, A: 3 weeks. Week minus 3 about 85 percent, minus 2 about 65 percent, race week about 45 percent. Last long run 14 to 16 days out. Keep marathon pace segments.
 - Trail half: as the road half, plus no hard downhill sessions in the final 7 days and one extra recovery day afterwards.
 - C: no taper.
-- Recovery after a race (easy running only): 10K 2 to 3 days, half 5 to 7 days, marathon 10 to 14 days, trail adds 1 to 2 days. No quality sessions until recovery completes.
+- Recovery after a race (easy running only): 10K 2 to 3 days, half 5 to 7 days, marathon 10 to 14 days, trail adds 1 to 2 days. No quality sessions until recovery completes. Built as 3, 6 and 12 days, trail adding 1 day for a 10K and 2 for a half or marathon. C races have no recovery window (D30).
+- Distance classes: under 15 km uses the 10K rules, 15 km up to 35 km the half rules, 35 km and over the marathon rules. A race with no distance gets no taper advice and a flag.
+
+## Warnings as built (D31)
+- Cluster: races from today on, linked when 21 days or fewer apart and either is a half or longer. A cluster is settled only when exactly one race is A and Mark has set that priority himself. Otherwise the Races screen asks him to choose, with a button per race. Each race in the cluster gets a suggested taper start, computed as at least B so a C race still has a date to plan from.
+- Recovery clash: a race inside the recovery window of an earlier race that is not C.
+- Taper clash: a race on or after the taper start of a later race that is not C.
+- Long run: a scheduled session of 90 minutes or more in the 7 days before a race that is not C (this is how the 08/11 long run flags the 14/11 10K).
+- Past races stay for the recovery check but are left out of clusters.
 
 ## Cluster rules
 - Cluster: two races 21 days or fewer apart where either is a half marathon or longer. Only one can be A. Ask Mark to set priorities. The earlier race is suggested as C or a controlled effort. The later race's taper takes precedence.
