@@ -30,6 +30,9 @@ Acceptance: every figure traceable to data. No suggested numbers or advice anywh
 ### Tooling between phases: heart rate zones and VO2 max (D46)
 Built: the Today cards (Kotcha zones copy with Garmin's zones and the change warning, VO2 max), the Trends VO2 max chart, the read tools and the sync kinds. Phase 4c (history import: older VO2 max in windows of 30 days and more history) is not built.
 
+### Phase 4d: Fitness tab (D47)
+Built: the Fitness tab on Trends (race predictions with the daily snapshot table, VO2 max, endurance score, hill score, lactate threshold, running personal records with a New tag), the sync kinds, the race lead-up prediction line and the get_fitness_summary read tool. Race predictions cannot be backfilled, so the trend starts on the first stored day. Phase 4c (history import: older endurance, hill and lactate threshold, older VO2 max) is not built.
+
 ## Phase 5: Google Calendar, scope to be agreed
 Scope and acceptance to be agreed before this phase starts. Candidates: busy time for the readiness verdict, mirrored planned workouts on a "Pulse Training" calendar (proposals only). See docs/INTEGRATIONS.md.
 

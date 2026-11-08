@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { aiStatusSchema, vo2ResponseSchema, zonesResponseSchema, debriefOneResponseSchema, debriefsResponseSchema, reviewResponseSchema, leadUpResponseSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
+import { aiStatusSchema, fitnessResponseSchema, vo2ResponseSchema, zonesResponseSchema, debriefOneResponseSchema, debriefsResponseSchema, reviewResponseSchema, leadUpResponseSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
 import { z } from "zod";
 import { api } from "./api";
 
@@ -167,3 +167,6 @@ export function useConfirmZones() {
 }
 
 export const useVo2 = (days: number) => useQuery({ queryKey: ["vo2max", days], queryFn: () => api(`/api/vo2max?days=${days}`, vo2ResponseSchema), refetchInterval: 5 * MIN });
+
+/** Garmin's fitness figures. Reads the cache. */
+export const useFitness = () => useQuery({ queryKey: ["fitness"], queryFn: () => api("/api/fitness", fitnessResponseSchema), refetchInterval: 5 * MIN });

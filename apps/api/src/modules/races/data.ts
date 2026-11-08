@@ -1,9 +1,9 @@
-import { and, eq, gte } from "drizzle-orm";
-import type { LeadUp } from "@pulse/shared";
+import { and, desc, eq, gte } from "drizzle-orm";
+import { formatDuration, matchPredictionDistance, type LeadUp } from "@pulse/shared";
 import type { RacesResponse } from "@pulse/shared";
 import { addDays, londonDate, weekStart } from "../../dates.js";
 import type { Db } from "../../db/index.js";
-import { activity, race, raceMeta, workout } from "../../db/schema.js";
+import { activity, race, racePrediction, raceMeta, workout } from "../../db/schema.js";
 import { lastGarminOk } from "../garmin/freshness.js";
 import { buildRaces, type MetaInput } from "./logic.js";
 import { buildLeadUp } from "./leadup.js";
@@ -29,5 +29,10 @@ export function getLeadUp(db: Db, now: Date, raceKey: string): { leadUp: LeadUp;
   const since = addDays(weekStart(r.date), -28);
   const works = db.select({ date: workout.date, name: workout.name, durationS: workout.durationS, completed: workout.completed }).from(workout).where(gte(workout.date, since)).all();
   const acts = db.select({ date: activity.date }).from(activity).where(gte(activity.date, since)).all();
-  return { leadUp: buildLeadUp(r, view.races, view.warnings, works, acts, view.today), syncedAt: view.syncedAt };
+  const leadUp = buildLeadUp(r, view.races, view.warnings, works, acts, view.today);
+  // Garmin's current prediction for the race's distance, as a fact (D47). Not a target and not advice.
+  const match = matchPredictionDistance(r.distanceM);
+  const pred = match ? db.select().from(racePrediction).orderBy(desc(racePrediction.date)).limit(1).get() : undefined;
+  const seconds = match && pred ? pred.seconds[match.key] : undefined;
+  return { leadUp: { ...leadUp, prediction: match && seconds !== undefined && pred ? { distance: match.label, time: formatDuration(seconds), date: pred.garminDate ?? pred.date } : null }, syncedAt: view.syncedAt };
 }

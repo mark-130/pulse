@@ -115,6 +115,8 @@ export const leadUpWeekSchema = z.object({
 });
 export type LeadUpWeek = z.infer<typeof leadUpWeekSchema>;
 
+import { leadUpPredictionSchema } from "./fitness.js";
+
 export const leadUpSchema = z.object({
   raceKey: z.string(),
   title: z.string(),
@@ -131,6 +133,8 @@ export const leadUpSchema = z.object({
   nearbyRaces: z.array(z.object({ title: z.string(), date: z.string(), daysApart: z.number() })),
   /** Factual flags: priority not set, start time unverified, a workout on race day, a race nearby, data quality. */
   flags: z.array(z.object({ kind: z.string(), text: z.string() })),
+  /** Garmin's current prediction for this race's distance when it matches 5K, 10K, half marathon or marathon within 2 percent. A fact, not a target. */
+  prediction: leadUpPredictionSchema.nullable().default(null),
   /** The clash warnings from the cluster, recovery, taper and long run rules that involve this race. */
   clashes: z.array(z.object({ id: z.string(), kind: z.string(), severity: z.enum(["action", "info"]), message: z.string() })),
 });

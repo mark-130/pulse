@@ -324,7 +324,7 @@ describe("Ask", () => {
   });
 
   it("has only read tools: no write-shaped tool, no proposal, no executor", () => {
-    expect(TOOL_NAMES).toEqual(["get_today", "get_week", "list_races", "get_race_leadup", "get_metrics", "get_hr_zones", "get_vo2max", "get_activity"]);
+    expect(TOOL_NAMES).toEqual(["get_today", "get_week", "list_races", "get_race_leadup", "get_metrics", "get_hr_zones", "get_vo2max", "get_fitness_summary", "get_activity"]);
     expect(TOOL_NAMES.some((n) => /propose|schedule|move|delete|create|set_|write|confirm/.test(n))).toBe(false);
     for (const t of ASK_TOOLS) expect(t.input_schema.type).toBe("object");
   });

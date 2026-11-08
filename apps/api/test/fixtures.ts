@@ -47,8 +47,22 @@ export const payloads: Record<string, unknown> = {
   get_vo2max_trend: { trend: [{ date: "2026-09-01", vo2_max: 46.8 }, { date: "2026-10-09", vo2_max: 46.5, carried_forward: true }, { date: "2026-10-10", vo2_max: 46.5 }, { date: "2026-11-07", vo2_max: 45.7 }] },
   // The live DEFAULT profile on 08/11/2026: lactate threshold method, resting 47, lactate threshold 162, max 180.
   get_heart_rate_zones: [{ trainingMethod: "LACTATE_THRESHOLD", restingHeartRateUsed: 47, lactateThresholdHeartRateUsed: 162, zone1Floor: 103, zone2Floor: 130, zone3Floor: 144, zone4Floor: 151, zone5Floor: 158, maxHeartRateUsed: 180, restingHrAutoUpdateUsed: true, sport: "DEFAULT", changeState: "UNCHANGED" }],
-  get_endurance_score: { current_score: 5710, classification: "trained", weekly_breakdown: [{ week_start: "2026-10-26", avg_score: 5650 }] },
-  get_race_predictions: { prediction_date: TODAY, predictions: { "5K": { time_seconds: 1495 }, "10K": { time_seconds: 3147 }, half_marathon: { time_seconds: 7106 }, marathon: { time_seconds: 15812 } } },
+  get_endurance_score: { current_score: 5730, current_date: "2026-11-08", classification: "trained", thresholds: { intermediate: 4900, trained: 5500, well_trained: 6100, expert: 6800, superior: 7400, elite: 8000 }, weekly_breakdown: [{ week_start: "2026-10-05", avg_score: 5770 }, { week_start: "2026-10-12", avg_score: 5755 }, { week_start: "2026-10-19", avg_score: 5740 }, { week_start: "2026-10-26", avg_score: 5735 }, { week_start: "2026-11-02", avg_score: 5731 }] },
+  // Garmin on 08/11/2026: current predictions only, no date option.
+  get_race_predictions: { prediction_date: TODAY, predictions: { "5K": { time: "24:50", time_seconds: 1490 }, "10K": { time: "52:17", time_seconds: 3137 }, half_marathon: { time: "1:57:40", time_seconds: 7060 }, marathon: { time: "4:22:21", time_seconds: 15741 } } },
+  get_personal_record: [
+    { record_type: "Fastest 1K", type_id: 1, value: "4:33", raw_value: 273.33099365234375, date: "2025-09-13", activity_id: 20369673274 },
+    { record_type: "Fastest Mile", type_id: 2, value: "7:20", raw_value: 440.0369873046875, date: "2025-09-13", activity_id: 20369673274 },
+    { record_type: "Fastest 5K", type_id: 3, value: "23:40", raw_value: 1420.5379638671875, date: "2025-09-13", activity_id: 20369673274 },
+    { record_type: "Fastest 10K", type_id: 4, value: "54:12", raw_value: 3252.56298828125, date: "2025-09-12", activity_id: 20359731950 },
+    { record_type: "Fastest Half Marathon", type_id: 5, value: "1:57:36", raw_value: 7056.4609375, date: "2025-09-28", activity_id: 20525102533 },
+    { record_type: "Longest Run", type_id: 7, value: "22.48 km", raw_value: 22484.720703125, date: "2025-08-17", activity_id: 20085367585 },
+    { record_type: "Longest Ride", type_id: 8, value: "8.48 km", raw_value: 8481.8095703125, date: "2026-05-10", activity_id: 22829176892 },
+    { record_type: "Fastest 100K Cycling", type_id: 10, value: "1:58", raw_value: 118.76833333333333, date: "2026-05-17", activity_id: 22910682527 },
+    { record_type: "Most Steps Day", type_id: 12, value: "59,271", raw_value: 59271.0, date: "2025-06-20" },
+  ],
+  get_hill_score: { latest_date: "2026-11-08", latest_overall_score: 36, latest_strength_score: 19, latest_endurance_score: 15, daily_scores: [{ date: "2026-11-08", overall: 36, strength: 19, endurance: 15 }, { date: "2026-10-10", overall: 37, strength: 21, endurance: 15 }] },
+  get_lactate_threshold: { lactate_threshold_speed_mps: 3.1388801000000006, lactate_threshold_heart_rate_bpm: 162, speed_hr_date: "2026-11-04T19:58:05.191", is_stale: false },
 };
 
 export interface FakeOptions {

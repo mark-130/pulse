@@ -34,6 +34,7 @@ import { createProposalsModule } from "../src/modules/proposals/module.js";
 import type { GarminWriterFactory } from "../src/modules/proposals/executors/garmin.js";
 import { createRacesModule } from "../src/modules/races/module.js";
 import { createZonesModule } from "../src/modules/zones/module.js";
+import { createFitnessModule } from "../src/modules/fitness/module.js";
 import { runBackup } from "../src/modules/system/backup.js";
 import { buildInfo } from "../src/modules/update/build.js";
 import { createUpdateModule } from "../src/modules/update/module.js";
@@ -98,7 +99,7 @@ export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Da
   const backupCalls: string[] = [];
   const app0 = { service: updateService, watchtowerUrl: config.WATCHTOWER_URL, token: config.WATCHTOWER_TOKEN, backup: () => { const f = runBackup(handle.sqlite, config.DATA_DIR, opts.clock?.()); backupCalls.push(f); return f; }, fetchFn };
   const proposals = createProposalsModule({ db: handle.db, connect: fake.connect, getWriter: writer.factory, writesEnabled: opts.writes ?? false, app: app0, log, now: opts.clock });
-  const app = createApp({ config, log, modules: [mod.module, updateModule, createRacesModule({ db: handle.db, now: opts.clock }), createZonesModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
+  const app = createApp({ config, log, modules: [mod.module, updateModule, createRacesModule({ db: handle.db, now: opts.clock }), createZonesModule({ db: handle.db, now: opts.clock }), createFitnessModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
   const login = await req(app, "/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
   const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const { csrfToken } = (await login.json()) as { csrfToken: string };

@@ -8,6 +8,8 @@ import { ageText } from "@/lib/stale";
 import { useTrends, useVo2 } from "@/lib/queries";
 import { notImportedNote, vo2Ranges } from "@/lib/zones";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
+import { FitnessTab } from "@/components/FitnessTab";
 
 const axis = { stroke: "var(--border-strong)", tick: { fill: "var(--muted)", fontSize: 12 } } as const;
 const shortDate = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
@@ -172,19 +174,38 @@ function Trends({ t }: { t: TrendsResponse }) {
   );
 }
 
+const TABS = [{ id: "readings", label: "Readings" }, { id: "fitness", label: "Fitness" }] as const;
+
 export function TrendsScreen() {
   const q = useTrends();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "fitness" ? "fitness" : "readings";
   return (
     <div className="space-y-3">
       <h1 className="t-greeting">Trends</h1>
-      {q.isPending && <div aria-hidden="true" className="h-64 rounded-3xl bg-surface-2" />}
-      {q.isError && !q.data && (
+      <div role="tablist" aria-label="Trends" className="flex gap-2">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            type="button"
+            aria-selected={tab === t.id}
+            onClick={() => setParams(t.id === "readings" ? {} : { tab: t.id }, { replace: true })}
+            className={`min-h-11 flex-1 rounded-full border px-4 text-[15px] font-semibold ${tab === t.id ? "border-accent bg-accent text-accent-foreground" : "border-border-strong bg-surface-2 text-foreground"}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "fitness" && <FitnessTab />}
+      {tab === "readings" && q.isPending && <div aria-hidden="true" className="h-64 rounded-3xl bg-surface-2" />}
+      {tab === "readings" && q.isError && !q.data && (
         <div role="alert" className="card">
           <p>{q.error.message}</p>
           <Button className="mt-3" onClick={() => void q.refetch()}>Retry</Button>
         </div>
       )}
-      {q.data && <Trends t={q.data} />}
+      {tab === "readings" && q.data && <Trends t={q.data} />}
     </div>
   );
 }

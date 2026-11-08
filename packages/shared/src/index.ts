@@ -7,3 +7,4 @@ export * from "./proposals.js";
 export * from "./ai.js";
 export * from "./update.js";
 export * from "./zones.js";
+export * from "./fitness.js";

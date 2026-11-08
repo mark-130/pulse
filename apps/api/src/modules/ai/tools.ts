@@ -5,6 +5,7 @@ import type { Db } from "../../db/index.js";
 import { activity } from "../../db/schema.js";
 import { getToday, getTrends, getWeek } from "../garmin/queries.js";
 import { getLeadUp, getRaceView } from "../races/data.js";
+import { getFitness } from "../fitness/data.js";
 import { getVo2View, getZonesView } from "../zones/data.js";
 import type { LlmTool } from "./llm.js";
 
@@ -20,6 +21,7 @@ export const ASK_TOOLS: LlmTool[] = [
   { name: "get_metrics", description: "A metric history from the last sync: training_load (acute, chronic, ratio), vo2max, endurance, weekly_distance or race_predictions.", input_schema: { type: "object", properties: { metric: { type: "string", enum: ["training_load", "vo2max", "endurance", "weekly_distance", "race_predictions"] }, days: { type: "number", description: "How many recent days, 1 to 90. Default 28." } }, required: ["metric"] } },
   { name: "get_hr_zones", description: "Heart rate zones as facts: Mark's manual copy of his Kotcha zones (Kotcha owns them) and Garmin's zones side by side, with each zone's range in bpm, the zones whose tops differ, and any open warning that Garmin changed its zones and the Kotcha copy was not confirmed.", input_schema: { type: "object", properties: {} } },
   { name: "get_vo2max", description: "Garmin's VO2 max for the last 30 days: daily values with carried-forward days marked, the current value and its date, and the change over 30 days.", input_schema: { type: "object", properties: {} } },
+  { name: "get_fitness_summary", description: "Garmin's fitness figures with their dates: race predictions with pace and Mark's personal record beside each, VO2 max with its 30 day change, endurance score with Garmin's own label and thresholds, hill score, lactate threshold, and running personal records. Figures only.", input_schema: { type: "object", properties: {} } },
   { name: "get_activity", description: "One recorded activity by id, from the Garmin sync.", input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
 ];
 
@@ -119,6 +121,17 @@ export function runTool(name: string, input: unknown, ctx: ToolContext): string 
           garmin: z.garmin && { profile: z.garmin.zones.profile, runningUsesDefaultProfile: z.garmin.zones.usingDefault, method: z.garmin.zones.method, restingHr: z.garmin.zones.resting, lactateThresholdHr: z.garmin.zones.lactateThreshold, maxHr: z.garmin.zones.max, firstSeen: z.garmin.firstSeen, fetchedAt: z.garmin.fetchedAt, zones: z.garmin.ranges.map((r) => ({ zone: r.zone, floorBpm: r.from, topBpm: r.top })) },
           topsThatDiffer: z.differences.map((d) => d.text),
           openWarning: z.warning ? z.warning.text : null,
+        });
+      }
+      case "get_fitness_summary": {
+        const f = getFitness(ctx.db, ctx.now);
+        return wrapData(name, {
+          racePredictions: { garminDate: f.predictions.date, trackingSince: f.predictions.trackingSince, note: "Garmin cannot give past predictions, so history starts on the first day the app stored one.", distances: f.predictions.rows.map((r) => ({ distance: r.label, predicted: r.time, pacePerKm: r.pace, personalRecord: r.record, differenceFromRecord: r.difference?.text ?? null })) },
+          vo2max: { current: f.vo2max.current, change30Days: f.vo2max.change30?.text ?? null },
+          enduranceScore: f.endurance && { score: f.endurance.score, date: f.endurance.date, garminClassification: f.endurance.classification, garminThresholds: Object.fromEntries(f.endurance.thresholds.map((t) => [t.key, t.value])), weeklyAverages: f.endurance.weekly },
+          hillScore: f.hill && { overall: f.hill.overall, strength: f.hill.strength, endurance: f.hill.endurance, date: f.hill.date },
+          lactateThreshold: f.lactate && { heartRateBpm: f.lactate.heartRate, pacePerKm: f.lactate.pace, measuredOn: f.lactate.measuredOn },
+          runningPersonalRecords: f.records.items.map((r) => ({ record: r.label, value: r.value, date: r.date, newInLast14Days: r.isNew })),
         });
       }
       case "get_vo2max": {

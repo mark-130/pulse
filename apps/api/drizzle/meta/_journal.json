@@ -57,6 +57,13 @@
       "when": 1794170635408,
       "tag": "0007_zones_and_vo2max",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794171632396,
+      "tag": "0008_fitness",
+      "breakpoints": true
     }
   ]
 }

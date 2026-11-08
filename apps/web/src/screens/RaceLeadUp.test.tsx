@@ -10,7 +10,7 @@ const base: LeadUp = {
     { weekStart: "2026-11-02", weekEnd: "2026-11-08", weeksBefore: 1, shownUntil: null, scheduledCount: 3, scheduledMinutes: 200, longest: { date: "2026-11-08", name: "1h50 Long Run", minutes: 110 }, restDays: 3, scheduledSoFar: 2, completedSoFar: 1, sessions: [{ date: "2026-11-08", name: "1h50 Long Run", minutes: 110, completed: false }] },
     { weekStart: "2026-11-09", weekEnd: "2026-11-15", weeksBefore: 0, shownUntil: null, scheduledCount: 0, scheduledMinutes: 0, longest: null, restDays: 7, scheduledSoFar: null, completedSoFar: null, sessions: [] },
   ],
-  raceDayWorkouts: [], nearbyRaces: [],
+  raceDayWorkouts: [], nearbyRaces: [], prediction: null,
   flags: [{ kind: "priority_not_set", text: "Priority not set." }, { kind: "race_day_workout", text: "A workout is scheduled in Garmin on race day: Shakeout, 20 min." }],
   clashes: [{ id: "c", kind: "long_run", severity: "info", message: "A 110 minute session is scheduled on 08/11, 6 days before Rhino 10K." }],
 };
@@ -42,6 +42,12 @@ describe("race lead-up view", () => {
   it("a race with no weeks in Garmin yet says so, and a past race says it has happened", () => {
     expect(html(<LeadUpView leadUp={{ ...base, weeks: [], daysToGo: 120 }} />)).toContain("not in Garmin yet");
     expect(html(<LeadUpView leadUp={{ ...base, weeks: [], past: true, daysToGo: -3 }} />)).toContain("This race has happened.");
+  });
+  it("states Garmin's current prediction for the distance as a fact, and nothing when there is none", () => {
+    const h = html(<LeadUpView leadUp={{ ...base, prediction: { distance: "10K", time: "52:17", date: "2026-11-08" } }} />);
+    expect(h).toContain("Garmin&#x27;s current prediction for this distance: 52:17, 08/11/2026.");
+    expect(html(<LeadUpView leadUp={base} />)).not.toContain("current prediction");
+    expect(h.replace(/<[^>]*>/g, " ")).not.toMatch(/target|aim|should|goal pace/i);
   });
   it("has no AI part at all", () => {
     expect(html(<LeadUpView leadUp={base} />)).not.toMatch(/AI|Sparkle/);

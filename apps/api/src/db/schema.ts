@@ -187,6 +187,30 @@ export const vo2maxPoint = sqliteTable("vo2max_point", {
   fetchedAt: text("fetched_at").notNull(),
 });
 
+/** One row per day of Garmin's race predictions, written by the first successful sync of the day. Garmin cannot give past ones. */
+export const racePrediction = sqliteTable("race_prediction", {
+  date: text("date").primaryKey(),
+  /** Seconds by distance key: 5K, 10K, half_marathon, marathon. */
+  seconds: json<Record<string, number>>("seconds").notNull(),
+  /** The date Garmin put on the prediction. */
+  garminDate: text("garmin_date"),
+  fetchedAt: text("fetched_at").notNull(),
+});
+
+/** Garmin's running personal records, with the day the app first saw each value so a new one can be tagged. */
+export const personalRecord = sqliteTable("personal_record", {
+  typeId: integer("type_id").primaryKey(),
+  key: text("key").notNull(),
+  recordType: text("record_type").notNull(),
+  value: text("value").notNull(),
+  rawValue: real("raw_value"),
+  /** The date of the activity that set the record. */
+  date: text("date").notNull(),
+  /** The day the app first saw this record value. At the very first import it is the record's own date, so old records are not "new". */
+  firstSeen: text("first_seen").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 /** Generated AI text, cached so it is never rewritten unless Mark taps Refresh. kind: weekly_review (key week start) or debrief (key activity id). */
 export const aiText = sqliteTable(
   "ai_text",

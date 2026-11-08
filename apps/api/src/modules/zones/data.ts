@@ -35,7 +35,7 @@ export function recordZonesHistory(db: Db, z: GarminZones, today: string): void 
   db.insert(hrZonesHistory).values({ firstSeen: today, profile: z.profile, method: z.method, floors: z.floors, maxHr: z.max, restingHr: z.resting, lactateThresholdHr: z.lactateThreshold }).run();
 }
 
-function kindStatus(db: Db, task: string, now: Date) {
+export function kindStatus(db: Db, task: string, now: Date) {
   const s = db.select().from(syncState).where(eq(syncState.job, kindJob(task))).get();
   const ageMinutes = s?.lastOk ? Math.max(0, Math.round((now.getTime() - Date.parse(s.lastOk)) / 60_000)) : null;
   return { fetchedAt: s?.lastOk ?? null, ageMinutes, stale: ageMinutes === null || ageMinutes > STALE_AFTER_MIN, lastError: s?.lastError ?? null };

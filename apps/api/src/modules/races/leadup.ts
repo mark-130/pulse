@@ -85,6 +85,7 @@ export function buildLeadUp(race: RaceView, others: RaceView[], warnings: RaceWa
     raceDayWorkouts,
     nearbyRaces,
     flags,
+    prediction: null,
     clashes: warnings.filter((w) => w.raceKeys.includes(race.eventKey)).map((w) => ({ id: w.id, kind: w.kind, severity: w.severity, message: w.message })),
   };
 }

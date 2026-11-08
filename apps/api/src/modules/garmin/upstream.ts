@@ -89,13 +89,36 @@ export const hrZoneProfileSchema = z.object({
 export const hrZonesSchema = z.array(hrZoneProfileSchema);
 export const enduranceSchema = z.object({
   current_score: num,
+  current_date: z.string().nullish(),
   classification: str,
+  /** Garmin's own band edges: intermediate, trained, well_trained, expert, superior, elite. */
+  thresholds: z.record(z.string(), z.number()).nullish(),
   weekly_breakdown: z.array(z.object({ week_start: z.string(), avg_score: z.number() })),
 });
 export const racePredictionsSchema = z.object({
   prediction_date: z.string(),
-  predictions: z.record(z.string(), z.object({ time_seconds: z.number() })),
+  predictions: z.record(z.string(), z.object({ time_seconds: z.number(), time: z.string().optional() })),
 });
+
+export const hillSchema = z.object({
+  latest_date: z.string().nullish(),
+  latest_overall_score: z.number().nullish(),
+  latest_strength_score: z.number().nullish(),
+  latest_endurance_score: z.number().nullish(),
+  daily_scores: z.array(z.object({ date: z.string(), overall: z.number().nullish(), strength: z.number().nullish(), endurance: z.number().nullish() })).optional(),
+});
+
+export const lactateSchema = z.object({
+  lactate_threshold_speed_mps: z.number().nullish(),
+  lactate_threshold_heart_rate_bpm: z.number().nullish(),
+  /** When the speed and heart rate were measured, a local timestamp. */
+  speed_hr_date: z.string().nullish(),
+  is_stale: z.boolean().nullish(),
+});
+
+export const personalRecordsSchema = z.array(
+  z.object({ record_type: z.string(), type_id: z.number(), value: z.string(), raw_value: z.number().nullish(), date: z.string(), activity_id: z.number().nullish() }),
+);
 
 export const activitiesSchema = z.object({
   has_more: z.boolean().nullish(),

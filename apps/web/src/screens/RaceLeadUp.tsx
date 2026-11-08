@@ -67,6 +67,7 @@ export function LeadUpView({ leadUp }: { leadUp: LeadUp }) {
         ) : (
           <ul className="mt-3 space-y-3">{leadUp.weeks.map((w) => <WeekRow key={w.weekStart} w={w} />)}</ul>
         )}
+        {leadUp.prediction && <p className="mt-3 text-[15px]">Garmin's current prediction for this distance: {leadUp.prediction.time}, {formatDate(leadUp.prediction.date)}.</p>}
         <p className="t-label mt-3">Everything here is read from Garmin as last synced. Training content comes from your coach.</p>
       </Card>
       <FlagsView leadUp={leadUp} />

@@ -1,10 +1,10 @@
 import { and, gte, inArray, lte, notInArray } from "drizzle-orm";
-import { BACKFILL_DAYS, BACKFILL_WINDOW_DAYS, SCHEDULE_AHEAD_DAYS, SCHEDULE_LOOKBACK_DAYS } from "@pulse/shared";
+import { RUNNING_RECORDS, BACKFILL_DAYS, BACKFILL_WINDOW_DAYS, SCHEDULE_AHEAD_DAYS, SCHEDULE_LOOKBACK_DAYS } from "@pulse/shared";
 import { eq } from "drizzle-orm";
 import type { z } from "zod";
 import { addDays, londonDate, normaliseTitle } from "../../dates.js";
 import type { Db } from "../../db/index.js";
-import { activity, garminSnapshot, race, settings, syncState, vo2maxPoint, workout } from "../../db/schema.js";
+import { activity, garminSnapshot, personalRecord, race, racePrediction, settings, syncState, vo2maxPoint, workout } from "../../db/schema.js";
 import { chooseProfile } from "../zones/logic.js";
 import { recordZonesHistory } from "../zones/data.js";
 import { sanitiseError } from "../../notify.js";
@@ -165,6 +165,28 @@ function applyActivities(data: z.infer<typeof up.activitiesSchema>, ctx: Ctx) {
   }
 }
 
+/** Keeps the first prediction of the day. A second sync on the same day changes nothing, so a day is always one row. */
+function applyPredictions(data: z.infer<typeof up.racePredictionsSchema>, ctx: Ctx) {
+  const seconds = Object.fromEntries(Object.entries(data.predictions).map(([k, v]) => [k, v.time_seconds]));
+  ctx.db.insert(racePrediction).values({ date: ctx.today, seconds, garminDate: data.prediction_date, fetchedAt: ctx.nowIso }).onConflictDoNothing().run();
+}
+
+/**
+ * Garmin's running records, with the day each value was first seen. A record that is new or changed gets today's date. The very first
+ * import uses each record's own date, so records set long ago are not tagged "New".
+ */
+function applyRecords(data: z.infer<typeof up.personalRecordsSchema>, ctx: Ctx) {
+  const first = ctx.db.select({ id: personalRecord.typeId }).from(personalRecord).limit(1).all().length === 0;
+  for (const r of data) {
+    const kind = RUNNING_RECORDS.find((k) => k.type === r.record_type);
+    if (!kind) continue;
+    const prev = ctx.db.select().from(personalRecord).where(eq(personalRecord.typeId, r.type_id)).get();
+    if (prev && prev.value === r.value && prev.date === r.date) continue;
+    const values = { key: kind.key, recordType: r.record_type, value: r.value, rawValue: r.raw_value ?? null, date: r.date, firstSeen: first ? r.date : ctx.today, updatedAt: ctx.nowIso };
+    ctx.db.insert(personalRecord).values({ typeId: r.type_id, ...values }).onConflictDoUpdate({ target: personalRecord.typeId, set: values }).run();
+  }
+}
+
 function applyVo2(data: z.infer<typeof up.vo2Schema>, ctx: Ctx) {
   for (const p of data.trend) {
     const values = { value: p.vo2_max, carriedForward: p.carried_forward ?? false, fetchedAt: ctx.nowIso };
@@ -228,7 +250,11 @@ function buildTasks(today: string, activityDays: number): Task<unknown>[] {
       apply: (d, c) => applyVo2(d as z.infer<typeof up.vo2Schema>, c),
     },
     { name: "endurance_score", tool: "get_endurance_score", args: { start_date: addDays(today, -83), end_date: today }, kind: "endurance_score", schema: up.enduranceSchema },
-    { name: "race_predictions", tool: "get_race_predictions", args: {}, kind: "race_predictions", schema: up.racePredictionsSchema },
+    // The prediction is current only: Garmin cannot give past ones. The first successful sync of each day keeps one row (D47).
+    { name: "race_predictions", tool: "get_race_predictions", args: {}, kind: "race_predictions", schema: up.racePredictionsSchema, apply: (d, c) => applyPredictions(d as z.infer<typeof up.racePredictionsSchema>, c) },
+    { name: "hill", tool: "get_hill_score", args: { start_date: addDays(today, -29), end_date: today }, kind: "hill", schema: up.hillSchema },
+    { name: "lactate_threshold", tool: "get_lactate_threshold", args: {}, kind: "lactate_threshold", schema: up.lactateSchema },
+    { name: "personal_records", tool: "get_personal_record", args: {}, kind: "personal_records", schema: up.personalRecordsSchema, apply: (d, c) => applyRecords(d as z.infer<typeof up.personalRecordsSchema>, c) },
   ];
   return tasks;
 }
