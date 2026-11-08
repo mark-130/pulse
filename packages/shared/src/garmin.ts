@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { verdictSchema } from "./ai.js";
 import { raceViewSchema, type RaceView } from "./races.js";
 
 /** Response shapes for the read-only Garmin views. Validated on the API and in the browser. */
@@ -118,6 +119,7 @@ export const todayResponseSchema = z.object({
   date: z.string(),
   syncedAt: z.string().nullable(),
   proposals: z.object({ pending: z.number() }),
+  verdict: verdictSchema,
   readiness: readinessSchema.nullable(),
   session: z.object({
     today: z.array(workoutItemSchema),

@@ -150,7 +150,10 @@ export const aiUsage = sqliteTable("ai_usage", {
   model: text("model").notNull(),
   inputTokens: integer("input_tokens").notNull(),
   outputTokens: integer("output_tokens").notNull(),
-  costGbp: text("cost_gbp").notNull(),
+  /** Tokens read from the prompt cache, and tokens written to it. Both are billed at their own rates. */
+  cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+  cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+  costGbp: real("cost_gbp").notNull(),
 });
 
 export const settings = sqliteTable("settings", {

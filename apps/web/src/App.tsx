@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router";
 import { Layout } from "@/components/Layout";
 import { EmptyState } from "@/components/ui";
 import { useSession } from "@/lib/auth";
+import { Ask } from "@/screens/Ask";
 import { Login } from "@/screens/Login";
 import { Placeholder } from "@/screens/Placeholder";
 import { Proposals } from "@/screens/Proposals";
@@ -32,7 +33,7 @@ export function App() {
           <Route path="week" element={<Week />} />
           <Route path="races" element={<Races />} />
           <Route path="trends" element={<TrendsScreen />} />
-          <Route path="ask" element={<Placeholder title="Ask" phase="Phase 4" />} />
+          <Route path="ask" element={<Ask />} />
           <Route path="proposals" element={<Proposals />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Placeholder title="Not found" phase="no phase" />} />

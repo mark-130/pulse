@@ -53,7 +53,7 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - Orb hero: 96px orb, greeting "Morning, Mark" (by time of day), date line.
 - Briefing bubble: sparkle, "Morning briefing", time, AI chip, text 15 with 1.6 line height.
 - Prompt chips under the briefing: three suggested questions, wrapping to rows.
-- Verdict card: verdict chip, big readiness number over 100, gradient gauge with a marker, one line of reasons, Garmin sync time.
+- Verdict card (built in 4a): an outlined verdict pill with icon and text (check for Go as planned, down arrow for Go but easier, refresh arrows for Swap for recovery, bed for Rest, question mark for No verdict, coloured by the verdict tokens), Garmin's own readiness score big over 100 with its date, the gradient gauge with a marker at that score, the top 3 reasons (numbers and dates) with the rest behind "All reasons", the illness and injury note, Garmin sync time. The verdict is code, so the card carries no AI chip.
 - Session row: icon tile, overline, title, estimated duration, source, View button.
 - Race card: name, date and start time in the race's own time zone, countdown, a seven day row of circles (today outlined, taper days tinted, race day filled accent), chips for priority, goal and taper start, then a line for the following race.
 - Metric tiles, two columns: label, value, 4px gradient bar, status line.
@@ -77,6 +77,14 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - The Move note "The plan app may revert this." appears in the Move dialog and the confirm dialog until the sync conflict probe result is recorded in DECISIONS.md (PROBE_RESULT_RECORDED in packages/shared).
 - Week: each planned, not completed workout from today on has Move (opens a date picker dialog) and Remove from schedule. Both only create a proposal, then a toast links to Proposals.
 - The Today proposals card shows the real pending count.
+
+## AI surfaces (Phase 4a)
+- Briefing bubble: sparkle, "Morning briefing", AI chip, "Generated HH:mm", the text, and a line saying which data groups were out of date when it was written. States in plain text: "Writing your briefing." while the call runs, "AI is off. Set ANTHROPIC_API_KEY to switch the briefing on.", "Monthly AI budget reached. The briefing returns next month.", "The briefing could not be written. It will try again later."
+- Orb thinking state: while a call runs the orb gets a still accent ring (always shown, also with prefers-reduced-motion) and, when motion is allowed, a faster glow. The Today hero orb thinks while the briefing is written, and the Ask orb while a question is answered.
+- Ask (the raised orb tab): a header with the orb, the conversation (your questions right, answers left), a box and Send and New chat buttons, all 44px. Answers carry the sparkle and AI chip and a "Looked at: ..." line naming the tools used. Fixed replies written in code (illness and injury advice) carry "From the app, not AI" instead. Off and budget states are plain text and the box is disabled. A notice shows from 80 percent of the monthly cap.
+- Prompt chips on Today open Ask with the question in the box. Nothing is sent until you tap Send.
+- Settings, AI usage: on or off, this month's spend against the cap with a bar, calls per feature, when prices were checked and the exchange rate.
+- Every AI-written block carries the sparkle icon and an "AI" chip.
 
 ## Today order
 Orb hero, briefing, prompt chips, verdict, session, race, metrics, proposals. Module widgets register a card (1x1 or 2x1) into the grid after these. Reordering is a later feature.

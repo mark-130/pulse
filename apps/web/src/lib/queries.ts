@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
+import { aiStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
 import { z } from "zod";
 import { api } from "./api";
 
@@ -69,4 +69,33 @@ export function useConfirmProposal() {
 export function useRejectProposal() {
   const refresh = useRefreshProposals();
   return useMutation({ mutationFn: (id: string) => api(`/api/proposals/${id}/reject`, confirmResponseSchema, { method: "POST" }), onSettled: refresh });
+}
+
+export const useAiStatus = () => useQuery({ queryKey: ["ai-status"], queryFn: () => api("/api/ai/status", aiStatusSchema), refetchInterval: MIN });
+
+export const useBriefing = () => useQuery({ queryKey: ["briefing"], queryFn: () => api("/api/briefing", briefingResponseSchema) });
+
+/** Asks the server to write today's briefing if it is missing. The server allows one a day. */
+export function useGenerateBriefing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api("/api/briefing/generate", briefingResponseSchema, { method: "POST" }),
+    onSuccess: (data) => {
+      qc.setQueryData(["briefing"], data);
+      void qc.invalidateQueries({ queryKey: ["ai-status"] });
+    },
+  });
+}
+
+export const useChat = (thread: string) => useQuery({ queryKey: ["chat", thread], queryFn: () => api(`/api/chat?thread=${encodeURIComponent(thread)}`, chatThreadSchema) });
+
+export function useSendChat(thread: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (message: string) => api("/api/chat", chatThreadSchema, { method: "POST", body: { thread, message } }),
+    onSuccess: (data) => {
+      qc.setQueryData(["chat", thread], data);
+      void qc.invalidateQueries({ queryKey: ["ai-status"] });
+    },
+  });
 }

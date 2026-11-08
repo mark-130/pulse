@@ -38,6 +38,7 @@ export function sanitiseError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   return raw
     .replace(/https?:\/\/\S+/g, "[url]")
+    .replace(/sk-ant-[A-Za-z0-9_-]+/g, "[redacted]")
     .replace(/(token|key|secret|password)=\S+/gi, "$1=[redacted]")
     .slice(0, 300);
 }

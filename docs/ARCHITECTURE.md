@@ -11,9 +11,9 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - race_meta (built in Phase 2, D29; owned by NGtive Split, never overwritten by sync): meta_key, priority (A, B, C), type (road, trail), goal_override_s, notes, updated_at. meta_key is event_uuid when present, otherwise the date plus the normalised title (lower case, punctuation removed, spaces collapsed). Edits are local database writes with no confirm tap, because nothing outside NGtive Split changes.
 - proposal, audit_log (see below)
 - sync_state: job, last_ok, last_attempt, last_error, consecutive_failures, last_alert_at, detail
-- briefing: date, text, data JSON, model, tokens
+- briefing: date, text, data JSON (generatedAt, stale groups, the context sent), model, tokens
 - chat_message: thread, role, content, tool_calls JSON
-- ai_usage: ts, feature, model, input_tokens, output_tokens, cost_gbp
+- ai_usage: ts, feature, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_gbp (real, GBP)
 - settings: key, value JSON (taper overrides, home coordinates, Phase 5 calendar allowlist)
 - secret: name, ciphertext (AES-256-GCM, key from PULSE_SECRET_KEY)
 
@@ -22,6 +22,11 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - GET /api/races returns every active race with the effective priority, type, distance and goal, taper and recovery dates, data quality flags and the warnings. It reads the database only.
 - PUT /api/races/meta {key, priority, type} writes race_meta for one race (key is race.event_key). null clears a field and both null removes the row. The response carries the previous values so the screen can offer an undo. Session and CSRF are required. No confirm tap, because only our own database changes and Garmin is never written (D29).
 - Today reads its next race from the same function, so the chips on the race card match the Races screen.
+
+## AI (Phase 4a)
+- apps/api/src/modules/ai: llm.ts (the small model interface tests mock), anthropic.ts (the SDK client), runtime.ts (callModel: gate, call, usage row), usage.ts (cap, month spend, status), pricing.ts, verdict.ts (readiness rules), tools.ts (the six read tools and the data wrapper), briefing.ts, chat.ts (the capped tool loop), module.ts (routes and the 06:30 job).
+- Routes: GET /api/ai/status, GET /api/briefing, POST /api/briefing/generate (only if today's is missing, one at a time, not again for 10 minutes after a failure), GET and POST /api/chat. The verdict is part of GET /api/today. All need the session, and POST needs CSRF.
+- Every model call passes aiGate first (key set, month spend under AI_MONTHLY_CAP_GBP) and writes an ai_usage row after. The AI module imports no executor, no proposal function and no Garmin client.
 
 ## Auth
 Single user. Password checked against a scrypt hash (salt:hash in hex) in PULSE_PASSWORD_HASH. Signed httpOnly SameSite=Lax session cookie (30 days). CSRF token header on every non-GET. Login rate limit: 5 attempts per 15 minutes per IP. Tailscale identity headers are not trusted, because LAN clients can spoof them.

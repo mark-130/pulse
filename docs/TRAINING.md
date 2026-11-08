@@ -50,10 +50,20 @@
 - A race inside the recovery window of an earlier race gets a warning.
 - Fixtures from Mark's calendar on 07/11/2026 (tests only, never hard-code): Rhino 10K 14/11/2026 is 6 days after the 08/11 long run. Pierpont Plod half 14/03/2027 is 21 days before Brighton Marathon 04/04/2027. Scottish Half 15/08/2027 is 14 days before Sydney Marathon 29/08/2027. Expected: all three flagged, with a taper start date suggested for each.
 
-## Daily readiness verdict
-- Inputs: training readiness, sleep score, HRV status against baseline, resting heart rate against baseline, body battery, recent load, today's planned workout, busy time from calendars (Phase 5, Google Calendar).
-- Output: one of "Go as planned", "Go but easier", "Swap for recovery", "Rest", with reasons that cite numbers and dates.
-- Never a diagnosis. Illness, pain or injury: advise rest and seeing a clinician or physio.
+## Daily readiness verdict (built in Phase 4a, D35)
+- Computed in code (apps/api/src/modules/ai/verdict.ts). The AI never decides it and may only quote and explain it.
+- Inputs: Garmin training readiness, sleep score, HRV against baseline, resting heart rate against its 7 day average, body battery, recent load, today's planned workout. Busy time from calendars joins in Phase 5.
+- A measure dated before yesterday is too old and counts as missing. With fewer than 3 of the 6 measures the result is "No verdict" and says so.
+- Each measure is ok (0 points), caution (1) or poor (2). Defaults, editable in the code constants:
+  - Training readiness: 60 and over ok, 40 to 59 caution, under 40 poor.
+  - Sleep score: 70 and over ok, 50 to 69 caution, under 50 poor.
+  - HRV: at or above the baseline low ok. Below it by up to 10 percent caution, by more than 10 percent poor.
+  - Resting heart rate: up to 3 bpm over the 7 day average ok, 4 to 6 caution, 7 or more poor.
+  - Body battery (the day's highest): 70 and over ok, 40 to 69 caution, under 40 poor.
+  - Load, acute to chronic ratio: up to 1.3 ok, up to 1.5 caution, above 1.5 poor.
+- Output: Rest if 3 or more poor or 7 or more points. Swap for recovery if 2 or more poor or 4 or more points. Go but easier if 2 or more points or any poor. Otherwise Go as planned. A long or hard planned session (90 minutes or more, or a name with interval, tempo, threshold, repeat, hill, speed, fartlek, race or a pattern like 6x800) on a day of 3 or more points moves Go but easier to Swap for recovery.
+- Reasons cite the number and its date, worst first, then today's planned session. The note "If you are ill, in pain or injured, rest and see a doctor or physio. This is not medical advice." is always shown.
+- Illness, pain or injury: a question that mentions them gets a fixed reply to rest and see a doctor or physio, written in code, with no verdict and no model call.
 - The verdict is advice. Garmin and the plan app keep the real workouts.
 
 ## Plan app conflict risk

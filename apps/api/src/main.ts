@@ -9,6 +9,9 @@ import { modules, startJobs } from "./modules/registry.js";
 import { createMcpWriterFactory } from "./modules/proposals/confirm.js";
 import { createProposalsModule } from "./modules/proposals/module.js";
 import { verifyApplied } from "./modules/proposals/verify.js";
+import { createAnthropicClient } from "./modules/ai/anthropic.js";
+import { createAiModule } from "./modules/ai/module.js";
+import { aiConfigured } from "./modules/ai/usage.js";
 import { createRacesModule } from "./modules/races/module.js";
 import { createNotifier, ntfyEnabled } from "./notify.js";
 
@@ -34,11 +37,20 @@ const { module: garminModule, garmin } = createGarminModule({
   notify: createNotifier(config, log),
   log,
 });
+const { module: aiModule } = createAiModule({
+  db,
+  config,
+  llm: aiConfigured(config) ? createAnthropicClient(config.ANTHROPIC_API_KEY) : null,
+  log,
+  now: () => new Date(),
+});
+log.info(aiConfigured(config) ? "ai on" : "ai off, no key set");
 const writesEnabled = config.PULSE_GARMIN_WRITES === "on";
 log.info({ writes: writesEnabled ? "on" : "off" }, writesEnabled ? "garmin writes on" : "garmin writes off, confirmed changes are dry runs");
 modules.push(
   garminModule,
   createRacesModule({ db }),
+  aiModule,
   createProposalsModule({
     db,
     connect: connectGarmin,

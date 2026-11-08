@@ -34,6 +34,11 @@ body {
 @media (prefers-reduced-motion: no-preference) {
   .orb::before { animation: orb-glow 4s ease-in-out infinite; }
 }
+/* Thinking: a still ring that is always shown, plus a faster glow when motion is allowed. */
+.orb-thinking { outline: 2px solid var(--accent); outline-offset: 5px; }
+@media (prefers-reduced-motion: no-preference) {
+  .orb-thinking::before { animation: orb-glow 1.2s ease-in-out infinite; }
+}
 @keyframes orb-glow { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
 
 .focus-ring:focus-visible, a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -16,6 +16,13 @@ const envSchema = z.object({
   NTFY_TOKEN: z.string().default(""),
   /** Off by default. While off the confirm flow runs and is audited but nothing is sent to Garmin (D32). */
   PULSE_GARMIN_WRITES: z.enum(["on", "off"]).default("off"),
+  /** Empty means AI is off. Server side only: never sent to the browser, logged, or put in a prompt. */
+  ANTHROPIC_API_KEY: z.string().default(""),
+  ANTHROPIC_MODEL_SMART: z.string().min(1).default("claude-sonnet-5-5"),
+  ANTHROPIC_MODEL_FAST: z.string().min(1).default("claude-haiku-5-5"),
+  AI_MONTHLY_CAP_GBP: z.coerce.number().positive().default(5),
+  /** Price tables are in USD. This is the exchange rate used to show spend in GBP. Update it when it drifts. */
+  AI_USD_TO_GBP: z.coerce.number().positive().default(0.78),
   WEB_DIST: z.string().optional(),
   MIGRATIONS_DIR: z.string().optional(),
 });

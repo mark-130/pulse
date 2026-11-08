@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Button, Card } from "@/components/ui";
+import { useAiStatus } from "@/lib/queries";
+import { formatDate, plural } from "@/lib/format";
 import { useAuthActions } from "@/lib/auth";
 import { getThemeMode, setThemeMode, type ThemeMode } from "@/lib/theme";
 
@@ -8,6 +10,38 @@ const modes: { value: ThemeMode; label: string }[] = [
   { value: "dark", label: "Dark" },
   { value: "light", label: "Light" },
 ];
+
+const gbp = (n: number) => `£${n.toFixed(n < 0.1 ? 3 : 2)}`;
+
+function AiUsage() {
+  const q = useAiStatus();
+  const s = q.data;
+  return (
+    <Card title="AI usage">
+      {q.isPending && <p className="t-secondary">Loading</p>}
+      {q.isError && <p role="alert" className="text-danger">{q.error.message}</p>}
+      {s && (
+        <div className="space-y-3 text-[15px]">
+          <p className="font-semibold">{s.state === "off" ? "AI is off. Set ANTHROPIC_API_KEY to switch it on." : s.state === "budget" ? "Monthly AI budget reached. AI returns next month." : "AI is on."}</p>
+          {s.notice && <p role="status">{s.notice}</p>}
+          <div>
+            <p className="t-label">This month ({s.month.label})</p>
+            <p className="font-display text-[22px] font-semibold">{gbp(s.month.spentGbp)} <span className="t-secondary font-sans text-[13px] font-normal">of {gbp(s.month.capGbp)}, {s.month.percent} percent, {plural(s.month.calls, "call")}</span></p>
+            <div className="mt-1 h-2 rounded-full bg-surface-2" role="img" aria-label={`${s.month.percent} percent of the monthly cap used`}>
+              <div className="h-2 rounded-full" style={{ width: `${Math.min(100, s.month.percent)}%`, background: "var(--ai-gradient)" }} />
+            </div>
+          </div>
+          {s.month.byFeature.length > 0 && (
+            <ul className="space-y-1">
+              {s.month.byFeature.map((f) => <li key={f.feature} className="flex justify-between gap-3"><span className="capitalize">{f.feature}</span><span className="t-secondary">{plural(f.calls, "call")}, {gbp(f.costGbp)}</span></li>)}
+            </ul>
+          )}
+          <p className="t-label">Prices checked {formatDate(s.pricing.checkedOn)}. Dollars converted at {s.pricing.usdToGbp} to the pound. Set AI_MONTHLY_CAP_GBP and AI_USD_TO_GBP in the stack variables.</p>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export function Settings() {
   const { logout } = useAuthActions();
@@ -33,6 +67,7 @@ export function Settings() {
           ))}
         </div>
       </Card>
+      <AiUsage />
       <Button variant="secondary" onClick={() => void logout()}>
         Sign out
       </Button>

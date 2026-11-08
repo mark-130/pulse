@@ -17,9 +17,13 @@ Acceptance: all Garmin calendar races appear in their own time zone with distanc
 Scope: engine, audit log, Proposals screen, Garmin reschedule, sync-conflict probe.
 Acceptance: a test proves no write path exists outside the engine. Stale-hash test passes. Probe result recorded in DECISIONS.md.
 
-## Phase 4: AI
-Scope: briefing, Ask, taper planner, weekly review, post-run debrief, budget caps, evals, optional forecast.
-Acceptance: briefing arrives by ntfy. Every figure traceable to data. Cap enforced in a test.
+## Phase 4: AI (split in two, D36)
+### Phase 4a: AI foundation
+Scope: Anthropic client (API only), usage logging and monthly cap with a hard stop, readiness verdict in code, daily briefing (06:30 job plus on-demand), Ask with read tools only, orb thinking state, AI off state, `pnpm eval` for manual runs.
+Acceptance: with no key every AI surface says "AI is off" and the rest of the app is unchanged. The verdict fixtures pass. The cap stops AI at the monthly limit and nothing else changes. The tool loop is capped at 8. The key never appears in logs, responses or prompts. No ntfy yet.
+### Phase 4b: later, after 4a is signed off
+Scope: taper planner, weekly review, post-run debrief, the propose_* tools (proposals only, through the Phase 3 engine), briefing by ntfy, optional forecast.
+Acceptance: every figure traceable to data. Write-shaped tools only insert a proposal.
 
 ## Phase 5: Google Calendar, scope to be agreed
 Scope and acceptance to be agreed before this phase starts. Candidates: busy time for the readiness verdict, mirrored planned workouts on a "Pulse Training" calendar (proposals only). See docs/INTEGRATIONS.md.

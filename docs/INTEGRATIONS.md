@@ -25,8 +25,11 @@ Not used in v1. Races come from the Garmin calendar (D22). Notes kept for when P
 Off unless NTFY_TOKEN is set (D28). With no token the app never calls ntfy, logs one info line at boot ("ntfy alerts off") and nothing per skipped alert. A failed send (401, 403, network error, 5 second timeout) is caught, logged as one warning without the token or URL, and never fails, delays or backs off a sync. The sync sheet then says "Failure alerts are off. This screen is the only place failures show."
 JSON POST to http://192.168.0.10:8090 (root URL), topic homelab-alerts, Bearer token. Notification titles use APP_NAME from packages/shared. Used for: briefing ready, pending proposals, sync failures. Messages link to NGtive Split (code name pulse) and never confirm anything.
 
-## Anthropic API
-Official SDK. Models from env, defaults ANTHROPIC_MODEL_SMART=claude-sonnet-5-5 and ANTHROPIC_MODEL_FAST=claude-haiku-5-5 (verify IDs at docs.claude.com before the first call). Dedicated API key with a spend cap.
+## Anthropic API (Phase 4a)
+- Official SDK (@anthropic-ai/sdk), used only in apps/api/src/modules/ai/anthropic.ts. Never in the browser.
+- Env: ANTHROPIC_API_KEY (empty means AI is off), ANTHROPIC_MODEL_SMART=claude-sonnet-5-5 (Ask), ANTHROPIC_MODEL_FAST=claude-haiku-5-5 (briefing), AI_MONTHLY_CAP_GBP=5, AI_USD_TO_GBP=0.78. All are in deploy/docker-compose.yml with safe defaults. Use a dedicated key with its own spend limit in the Anthropic console as a second guard.
+- Prices checked 08/11/2026 at https://platform.claude.com/docs/en/about-claude/pricing, USD per million tokens: Sonnet 5.5 input 2, output 10, 5 minute cache write 2.50, cache read 0.10. Haiku 5.5 (prompts up to 100,000 tokens) input 0.10, output 0.50, cache write 0.125, cache read 0.01. The table and its date are in apps/api/src/modules/ai/pricing.ts and shown on Settings. Recheck them when the page changes.
+- Retries once, 60 second timeout. A failed call is logged as one sanitised line and never contains the key.
 
 ## Open-Meteo (Phase 4, optional)
 No key. Daily and race-week forecast from home coordinates in settings.

@@ -1,14 +1,15 @@
 import { sevenDayRow, type DayKind } from "@/lib/races";
 import { SportIcon } from "@/components/SportIcon";
 import { KindNote } from "@/components/KindNote";
-import { Activity, Battery, Check, Heart, Minus, Moon, Sparkles, TriangleAlert } from "lucide-react";
+import { Activity, ArrowDown, Battery, BedDouble, Check, CircleHelp, Heart, Moon, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import type { RaceItem, TodayResponse } from "@pulse/shared";
+import { AI_BUDGET_TEXT, AI_OFF_TEXT, type RaceItem, type TodayResponse, type Verdict } from "@pulse/shared";
 import { AiChip, Chip, PriorityChip } from "@/components/Chip";
 import { Orb } from "@/components/Orb";
 import { Button } from "@/components/ui";
 import { formatClock, formatDate, formatDayDate, formatDurationMin, formatKm, formatRaceKm, formatRaceTime, formatTime, humanise, plural } from "@/lib/format";
+import { useBriefingFlow } from "@/lib/briefing";
 import { useToday } from "@/lib/queries";
 import { dateLine, greetingFor } from "@/lib/today";
 import { widgets } from "@/modules/registry";
@@ -37,31 +38,73 @@ function Bar({ pct }: { pct: number | null }) {
   );
 }
 
+function BriefingBubble({ flow }: { flow: ReturnType<typeof useBriefingFlow> }) {
+  const d = flow.data;
+  const b = d?.briefing ?? null;
+  let body: ReactNode;
+  if (b) body = <p className="whitespace-pre-line leading-[1.6] [overflow-wrap:anywhere]">{b.text}</p>;
+  else if (flow.generating) body = <p role="status" className="leading-[1.6]">Writing your briefing.</p>;
+  else if (flow.loading) body = <p className="leading-[1.6]">Loading.</p>;
+  else if (d?.state === "off") body = <p className="leading-[1.6]">{AI_OFF_TEXT}. Set ANTHROPIC_API_KEY to switch the briefing on.</p>;
+  else if (d?.state === "budget") body = <p className="leading-[1.6]">{AI_BUDGET_TEXT}. The briefing returns next month.</p>;
+  else if (flow.failed) body = <p className="leading-[1.6]">The briefing could not be written. It will try again later.</p>;
+  else body = <p className="leading-[1.6]">No briefing yet.</p>;
+  return (
+    <section className="card-briefing" aria-labelledby="briefing-title">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <Sparkles aria-hidden className="size-4 text-accent" />
+        <h2 id="briefing-title" className="t-card-title !text-[15px]">Morning briefing</h2>
+        <AiChip />
+        {b && <span className="t-label">Generated {formatTime(b.generatedAt)}</span>}
+      </div>
+      {body}
+      {b && b.staleGroups.length > 0 && <p className="t-label mt-2">Written while {b.staleGroups.join(" and ")} {b.staleGroups.length > 1 || b.staleGroups[0]?.endsWith("s") ? "were" : "was"} out of date.</p>}
+    </section>
+  );
+}
+
 function Skeleton({ className = "" }: { className?: string }) {
   return <div aria-hidden="true" className={`rounded-3xl bg-surface-2 ${className}`} />;
 }
 
-function Readiness({ data }: { data: TodayResponse }) {
+const verdictStyle: Record<Verdict["state"], { icon: typeof Check; color: string }> = {
+  go: { icon: Check, color: "var(--verdict-go)" },
+  easier: { icon: ArrowDown, color: "var(--verdict-easy)" },
+  swap: { icon: RefreshCw, color: "var(--verdict-swap)" },
+  rest: { icon: BedDouble, color: "var(--verdict-rest)" },
+  unknown: { icon: CircleHelp, color: "var(--muted)" },
+};
+
+/** The readiness verdict is worked out in code from docs/TRAINING.md. Garmin's own score stays visible beside it. */
+function VerdictCard({ data }: { data: TodayResponse }) {
   const r = data.readiness;
-  const Icon = !r || r.level === null ? Minus : ["PRIME", "HIGH"].includes(r.level) ? Check : r.level === "MODERATE" ? Minus : TriangleAlert;
+  const v = data.verdict;
+  const { icon: Icon, color } = verdictStyle[v.state];
+  const top = v.reasons.slice(0, 3);
+  const rest = v.reasons.slice(3);
   return (
     <section className="card md:col-span-2" aria-labelledby="verdict-title">
-      <h2 id="verdict-title" className="t-overline mb-2">Readiness</h2>
-      <Chip>
-        <Icon aria-hidden className="size-3" />
-        {r?.level ? `Garmin: ${humanise(r.level)}` : "No readiness yet"}
-      </Chip>
+      <h2 id="verdict-title" className="t-overline mb-2">Today's verdict</h2>
+      <p className="inline-flex min-h-8 items-center gap-2 rounded-full border px-3 text-[15px] font-semibold" style={{ borderColor: color, color }}>
+        <Icon aria-hidden className="size-4" />
+        {v.label}
+      </p>
       <p className="mt-3 flex items-baseline gap-1">
         <span className="t-hero">{r?.score ?? "--"}</span>
         <span className="t-secondary">/ 100</span>
       </p>
+      <p className="t-label">{r ? `Garmin's own readiness score${r.level ? `, ${humanise(r.level).toLowerCase()}` : ""}, ${formatDate(r.date)}` : "No Garmin readiness score yet"}</p>
       <div className="my-3"><Gauge value={r?.score ?? null} /></div>
-      <p className="text-[15px]">
-        {r
-          ? [humanise(r.feedback), r.sleepScore !== null && `sleep score ${r.sleepScore}`, r.recoveryTimeHours !== null && `recovery time ${r.recoveryTimeHours} h`, r.acuteLoad !== null && `acute load ${r.acuteLoad}`].filter(Boolean).join(", ") + "."
-          : "Needs Garmin data. Nothing is guessed."}
-      </p>
-      <p className="t-label mt-1">{r ? `Garmin's own score for ${formatDate(r.date)}. The go or rest verdict arrives with AI in Phase 4.` : ""}</p>
+      <ul className="space-y-1 text-[15px]">
+        {top.map((t) => <li key={t} className="[overflow-wrap:anywhere]">{t}</li>)}
+      </ul>
+      {rest.length > 0 && (
+        <details>
+          <summary className="t-secondary flex min-h-11 cursor-pointer items-center">All reasons ({v.reasons.length})</summary>
+          <ul className="space-y-1 pb-2 text-[15px]">{rest.map((t) => <li key={t} className="[overflow-wrap:anywhere]">{t}</li>)}</ul>
+        </details>
+      )}
+      <p className="t-label mt-2">{v.healthNote}</p>
       <Synced at={data.syncedAt} />
     </section>
   );
@@ -182,10 +225,11 @@ export function Today() {
   const q = useToday();
   const data = q.data;
   const pending = data?.proposals.pending ?? 0;
+  const flow = useBriefingFlow();
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
       <section className="flex items-center gap-4 py-2 md:col-span-6">
-        <Orb size={96} />
+        <Orb size={96} thinking={flow.generating} />
         <div>
           <h1 className="t-greeting">{greetingFor(now)}</h1>
           <p className="t-secondary">{dateLine(now)}</p>
@@ -193,17 +237,10 @@ export function Today() {
       </section>
 
       <div className="space-y-3 md:col-span-4">
-        <section className="card-briefing" aria-labelledby="briefing-title">
-          <div className="mb-2 flex items-center gap-2">
-            <Sparkles aria-hidden className="size-4 text-accent" />
-            <h2 id="briefing-title" className="t-card-title !text-[15px]">Morning briefing</h2>
-            <AiChip />
-          </div>
-          <p className="leading-[1.6]">No briefing yet. It arrives once AI is switched on in Phase 4.</p>
-        </section>
+        <BriefingBubble flow={flow} />
         <div className="flex flex-wrap gap-2" aria-label="Suggested questions">
           {prompts.map((p) => (
-            <Link key={p} to="/ask" className="inline-flex min-h-11 items-center rounded-full border border-border-strong bg-surface-2 px-4 text-[13px]">{p}</Link>
+            <Link key={p} to={`/ask?q=${encodeURIComponent(p)}`} className="inline-flex min-h-11 items-center rounded-full border border-border-strong bg-surface-2 px-4 text-[13px]">{p}</Link>
           ))}
         </div>
       </div>
@@ -224,7 +261,7 @@ export function Today() {
       )}
       {data && (
         <>
-          <Readiness data={data} />
+          <VerdictCard data={data} />
           <Session data={data} />
           <Race data={data} />
           <Metrics data={data} />

@@ -4,6 +4,7 @@ import type {
   ActivityItem,
   Readiness,
   TodayResponse,
+  Verdict,
   TrendsResponse,
   WeekResponse,
   WorkoutItem,
@@ -12,6 +13,7 @@ import { addDays, londonDate, weekStart } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { activity, garminSnapshot, workout } from "../../db/schema.js";
 import { lastGarminOk } from "./freshness.js";
+import { computeVerdict } from "../ai/verdict.js";
 import { countPending } from "../proposals/engine.js";
 import { getRaceView } from "../races/data.js";
 import * as up from "./upstream.js";
@@ -70,6 +72,22 @@ function pickReadiness(db: Db, today: string): Readiness | null {
   };
 }
 
+function buildVerdict(db: Db, today: string, readiness: Readiness | null, metrics: TodayResponse["metrics"]): Verdict {
+  const load = latestSnapshot(db, "training_load_trend", up.trainingLoadTrendSchema, today);
+  const last = load?.data.trend[load.data.trend.length - 1];
+  const planned = db.select().from(workout).where(and(eq(workout.date, today), eq(workout.completed, false))).orderBy(asc(workout.name)).get();
+  return computeVerdict({
+    today,
+    readiness: readiness ? { date: readiness.date, score: readiness.score, level: readiness.level } : null,
+    sleep: metrics.sleep ? { date: metrics.sleep.date, score: metrics.sleep.score } : null,
+    hrv: metrics.hrv,
+    restingHr: metrics.restingHr,
+    bodyBattery: metrics.bodyBattery,
+    load: last ? { date: last.date, atl: last.atl ?? null, ctl: last.ctl ?? null, acwr: last.acwr ?? null } : null,
+    planned: planned ? { name: planned.name, durationS: planned.durationS } : null,
+  });
+}
+
 export function getToday(db: Db, now: Date): TodayResponse {
   const today = londonDate(now);
   const sleep = latestSnapshot(db, "sleep", up.sleepSchema, today);
@@ -87,17 +105,8 @@ export function getToday(db: Db, now: Date): TodayResponse {
     .orderBy(asc(workout.date))
     .limit(1)
     .get();
-  return {
-    date: today,
-    syncedAt: lastGarminOk(db),
-    proposals: { pending: countPending(db, now) },
-    readiness: pickReadiness(db, today),
-    session: {
-      today: db.select().from(workout).where(eq(workout.date, today)).all().map(toWorkout),
-      next: next ? toWorkout(next) : null,
-      activitiesToday: db.select().from(activity).where(eq(activity.date, today)).orderBy(asc(activity.startLocal)).all().map(toActivity),
-    },
-    metrics: {
+  const readiness = pickReadiness(db, today);
+  const metrics: TodayResponse["metrics"] = {
       sleep: sleep ? { date: sleep.date, score: sleep.data.sleep_score ?? null, hours: sleep.data.sleep_hours ?? null, qualifier: sleep.data.sleep_score_qualifier ?? null } : null,
       hrv: hrv
         ? {
@@ -120,7 +129,19 @@ export function getToday(db: Db, now: Date): TodayResponse {
             drained: bbDay?.drained ?? stats.data.body_battery_drained ?? null,
           }
         : null,
+  };
+  return {
+    date: today,
+    syncedAt: lastGarminOk(db),
+    proposals: { pending: countPending(db, now) },
+    verdict: buildVerdict(db, today, readiness, metrics),
+    readiness,
+    session: {
+      today: db.select().from(workout).where(eq(workout.date, today)).all().map(toWorkout),
+      next: next ? toWorkout(next) : null,
+      activitiesToday: db.select().from(activity).where(eq(activity.date, today)).orderBy(asc(activity.startLocal)).all().map(toActivity),
     },
+    metrics,
     nextRace: races[0] ?? null,
     followingRace: races[1] ?? null,
   };
