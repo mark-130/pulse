@@ -5,11 +5,13 @@ import { activity, workout } from "../../db/schema.js";
 import { DEBRIEF_TASK } from "./prompts.js";
 import { systemFor } from "./proposal-tools.js";
 import { aiGate } from "./usage.js";
+import { textFrom } from "./failure.js";
 import { callModel, type AiRuntime } from "./runtime.js";
 import { getStored, putStored } from "./store.js";
 import { wrapData } from "./tools.js";
 
-const MAX_TOKENS = 220;
+/** Room for thinking as well as the text: the models count thinking against this limit (D44). */
+const MAX_TOKENS = 2000;
 /** Runs this new, or newer, get a debrief automatically after a sync. Older ones only on a tap. */
 export const AUTO_DEBRIEF_DAYS = 2;
 /** At most this many automatic debriefs per sync, so a busy catch-up cannot spend the cap. */
@@ -46,11 +48,11 @@ export async function generateDebrief(rt: AiRuntime, id: string, refresh = false
   const res = await callModel(rt, "debrief", {
     model,
     system: systemFor(rt.config),
+    effort: "low",
     maxTokens: MAX_TOKENS,
     messages: [{ role: "user", content: `${DEBRIEF_TASK}\n\nContext:\n${wrapData("run_debrief_context", ctx)}` }],
   });
-  const text = res.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-  if (!text) throw new Error("The model returned no text.");
+  const text = textFrom(res);
   putStored(rt.db, "debrief", id, { text, model, tokens: res.usage.inputTokens + res.usage.outputTokens + res.usage.cacheReadTokens + res.usage.cacheWriteTokens, now: rt.now() });
   return getDebrief(rt, id);
 }

@@ -1,7 +1,7 @@
 import type { Db } from "../../db/index.js";
 import type { Logger } from "../../logger.js";
 import { sanitiseError } from "../../notify.js";
-import { AiCallError, type LlmClient, type LlmRequest, type LlmResponse } from "./llm.js";
+import { AiFailure, type LlmClient, type LlmRequest, type LlmResponse } from "./llm.js";
 import { aiGate, recordUsage, type AiConfig } from "./usage.js";
 
 export interface AiRuntime {
@@ -37,9 +37,9 @@ export async function callModel(rt: AiRuntime, feature: AiFeature, req: LlmReque
   try {
     res = await rt.llm.create(req);
   } catch (err) {
-    const message = err instanceof AiCallError ? err.message : sanitiseError(err);
-    rt.log.warn({ feature, err: message }, "ai call failed");
-    throw new AiCallError(message);
+    const failure = err instanceof AiFailure ? err : new AiFailure("unknown", sanitiseError(err).slice(0, 150));
+    rt.log.warn({ feature, reason: failure.reason, detail: failure.detail }, "ai call failed");
+    throw failure;
   }
   recordUsage(rt.db, rt.config, { feature, model: req.model, usage: res.usage, now: rt.now() });
   return res;

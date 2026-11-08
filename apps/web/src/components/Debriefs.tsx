@@ -17,6 +17,7 @@ export function useDebriefBlocks(activities: ActivityItem[]) {
         state={state}
         pending={write.isPending && write.variables?.id === id}
         failed={write.variables?.id === id && (write.isError || (write.data?.failed ?? false))}
+        failure={write.variables?.id === id ? (write.data?.failure ?? null) : null}
         onWrite={() => write.mutate({ id, refresh: false })}
         onRefresh={() => write.mutate({ id, refresh: true })}
       />

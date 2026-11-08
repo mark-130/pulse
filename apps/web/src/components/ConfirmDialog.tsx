@@ -19,6 +19,8 @@ export function ConfirmDialog({ proposal, writesEnabled, probeRecorded, onClose,
   const destructive = p ? isDestructive(p.kind) : false;
   const pending = p?.status === "pending";
   const isApp = p?.kind === "app.update";
+  // One place for an error: the red line while a request just failed, otherwise the stored reason on a failed proposal. Never both.
+  const showsError = (confirm.isError && !(isApp && confirm.error instanceof ApiRequestError && confirm.error.status === 0)) || reject.isError;
   // The app is stopped while Watchtower replaces it, so the confirm request usually ends in a dropped connection. That is the expected sign of success here.
   const send = (proposal: Proposal) =>
     confirm.mutate(proposal.id, {
@@ -80,13 +82,13 @@ export function ConfirmDialog({ proposal, writesEnabled, probeRecorded, onClose,
           {p.status !== "pending" && p.status !== "stale" && (
             <p role="status" className="mt-3 text-[15px] font-semibold">{statusLabel(p)}.{p.status === "applied" && p.result?.mode === "dry_run" ? " Nothing was sent to Garmin." : ""}</p>
           )}
-          {p.status === "failed" && p.result?.error && (
+          {p.status === "failed" && p.result?.error && !showsError && (
             <p className="t-secondary mt-1 [overflow-wrap:anywhere]">{p.result.error}</p>
           )}
           {p.status === "applied" && verificationLabel(p.result?.verification) && (
             <p className="t-secondary mt-1">Plan app check: {verificationLabel(p.result?.verification)}.</p>
           )}
-          {((confirm.isError && !(isApp && confirm.error instanceof ApiRequestError && confirm.error.status === 0)) || reject.isError) && <p role="alert" className="mt-3 text-[13px] font-medium text-danger [overflow-wrap:anywhere]">{confirm.error?.message ?? reject.error?.message}</p>}
+          {showsError && <p role="alert" className="mt-3 text-[13px] font-medium text-danger [overflow-wrap:anywhere]">{confirm.error?.message ?? reject.error?.message}</p>}
 
           <div className="mt-5 flex flex-col gap-2">
             {pending ? (

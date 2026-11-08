@@ -7,11 +7,13 @@ import { groupStatuses } from "../garmin/freshness.js";
 import { getRaceView } from "../races/data.js";
 import { BRIEFING_TASK } from "./prompts.js";
 import { systemFor } from "./proposal-tools.js";
+import { textFrom } from "./failure.js";
 import { callModel, type AiRuntime } from "./runtime.js";
 import { wrapData } from "./tools.js";
 
 const STALE_AFTER_MIN = 90;
-const MAX_TOKENS = 400;
+/** Room for thinking as well as the text: the models count thinking against this limit (D44). */
+const MAX_TOKENS = 3000;
 
 export function getBriefing(rt: AiRuntime, date = londonDate(rt.now())): Briefing | null {
   const row = rt.db.select().from(briefingTable).where(eq(briefingTable.date, date)).get();
@@ -57,11 +59,11 @@ export async function generateBriefing(rt: AiRuntime): Promise<Briefing> {
   const res = await callModel(rt, "briefing", {
     model,
     system: systemFor(rt.config),
+    effort: "low",
     maxTokens: MAX_TOKENS,
     messages: [{ role: "user", content: `${BRIEFING_TASK}\n\nContext:\n${wrapData("briefing_context", context)}` }],
   });
-  const text = res.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-  if (!text) throw new Error("The model returned no text.");
+  const text = textFrom(res);
   const now = rt.now();
   const date = londonDate(now);
   const generatedAt = now.toISOString();

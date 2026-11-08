@@ -4,7 +4,10 @@ import { Link, useSearchParams } from "react-router";
 import { AI_BUDGET_TEXT, AI_OFF_TEXT, type ChatMessage } from "@pulse/shared";
 import { AiChip, Chip } from "@/components/Chip";
 import { Orb } from "@/components/Orb";
+import { FailureDetails } from "@/components/FailureDetails";
+import { Prose } from "@/components/Prose";
 import { Button } from "@/components/ui";
+import { ApiRequestError } from "@/lib/api";
 import { useAiStatus, useChat, useSendChat } from "@/lib/queries";
 
 const SUGGESTIONS = ["How did I sleep?", "What is my next race?", "What do my readings say today?"];
@@ -32,7 +35,7 @@ function Message({ m }: { m: ChatMessage }) {
       <p className="mb-1 flex flex-wrap items-center gap-2">
         {ai ? <><Sparkles aria-hidden className="size-4 text-accent" /><AiChip /></> : <Chip>From the app, not AI</Chip>}
       </p>
-      <p className="whitespace-pre-line leading-[1.6] [overflow-wrap:anywhere]">{m.content}</p>
+      {ai ? <Prose text={m.content} /> : <p className="whitespace-pre-line leading-[1.6] [overflow-wrap:anywhere]">{m.content}</p>}
       {m.tools.length > 0 && <p className="t-label mt-2 [overflow-wrap:anywhere]">Looked at: {[...new Set(m.tools)].join(", ")}</p>}
       {m.tools.some((t) => t.startsWith("propose_")) && <p className="mt-2 text-[15px]">A proposal is waiting. Nothing has changed until you confirm it. <Link to="/proposals" className="inline-flex min-h-11 items-center font-semibold text-accent underline">Review proposals</Link></p>}
     </li>
@@ -107,7 +110,10 @@ export function Ask() {
         )}
       </ul>
       {send.isError && (
-        <p role="alert" className="text-[13px] font-medium text-danger [overflow-wrap:anywhere]">{send.error.message}</p>
+        <div role="alert" className="min-w-0">
+          <p className="text-[13px] font-medium text-danger [overflow-wrap:anywhere]">{send.error.message}</p>
+          <FailureDetails failure={send.error instanceof ApiRequestError ? send.error.failure : null} />
+        </div>
       )}
 
       <form onSubmit={submit} className="card space-y-3">

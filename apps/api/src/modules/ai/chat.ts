@@ -11,7 +11,8 @@ import { aiGate } from "./usage.js";
 import { COACH_NOTE, mentionsTrainingAdvice } from "./coaching.js";
 
 const HISTORY_MESSAGES = 20;
-const MAX_TOKENS = 1024;
+/** Room for thinking as well as the answer: the models count thinking against this limit (D44). */
+const MAX_TOKENS = 4096;
 const LIMIT_NOTE = "You have used all the tool calls allowed for this question. Answer now with what you have, and say plainly what is still missing.";
 
 interface StoredMeta {

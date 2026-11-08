@@ -36,6 +36,10 @@ export const verdictSchema = z.object({
 });
 export type Verdict = z.infer<typeof verdictSchema>;
 
+/** Why an AI card could not be written. A plain reason, no secrets, at most a short sanitised line of provider text. */
+export const aiFailureSchema = z.object({ reason: z.string(), label: z.string(), detail: z.string().nullable(), at: z.string() });
+export type AiFailureInfo = z.infer<typeof aiFailureSchema>;
+
 export const aiStateSchema = z.enum(["ok", "off", "budget"]);
 export const aiStatusSchema = z.object({
   state: aiStateSchema,
@@ -73,6 +77,7 @@ export const briefingResponseSchema = z.object({
   briefing: briefingSchema.nullable(),
   /** True when a generation failed recently and will be retried later. */
   failed: z.boolean(),
+  failure: aiFailureSchema.nullable().default(null),
 });
 export type BriefingResponse = z.infer<typeof briefingResponseSchema>;
 
@@ -113,6 +118,7 @@ export const reviewResponseSchema = z.object({
   /** False for a week that has not started yet. */
   canWrite: z.boolean(),
   failed: z.boolean(),
+  failure: aiFailureSchema.nullable().default(null),
 });
 export type ReviewResponse = z.infer<typeof reviewResponseSchema>;
 
@@ -121,5 +127,5 @@ export const debriefSchema = z.object({ activityId: z.string(), text: z.string()
 export type Debrief = z.infer<typeof debriefSchema>;
 export const debriefsResponseSchema = z.object({ state: aiStateSchema, message: z.string().nullable(), debriefs: z.record(z.string(), debriefSchema) });
 export type DebriefsResponse = z.infer<typeof debriefsResponseSchema>;
-export const debriefOneResponseSchema = z.object({ state: aiStateSchema, message: z.string().nullable(), debrief: debriefSchema.nullable(), failed: z.boolean() });
+export const debriefOneResponseSchema = z.object({ state: aiStateSchema, message: z.string().nullable(), debrief: debriefSchema.nullable(), failed: z.boolean(), failure: aiFailureSchema.nullable().default(null) });
 export type DebriefOneResponse = z.infer<typeof debriefOneResponseSchema>;

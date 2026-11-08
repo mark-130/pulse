@@ -9,6 +9,8 @@ import { AiChip, Chip, PriorityChip } from "@/components/Chip";
 import { Orb } from "@/components/Orb";
 import { Button } from "@/components/ui";
 import { useDebriefBlocks } from "@/components/Debriefs";
+import { FailureDetails } from "@/components/FailureDetails";
+import { Prose } from "@/components/Prose";
 import { formatClock, formatDate, formatDayDate, formatDurationMin, formatKm, formatRaceKm, formatRaceTime, formatTime, humanise, plural } from "@/lib/format";
 import { useBriefingFlow } from "@/lib/briefing";
 import { useToday } from "@/lib/queries";
@@ -43,7 +45,7 @@ function BriefingBubble({ flow }: { flow: ReturnType<typeof useBriefingFlow> }) 
   const d = flow.data;
   const b = d?.briefing ?? null;
   let body: ReactNode;
-  if (b) body = <p className="whitespace-pre-line leading-[1.6] [overflow-wrap:anywhere]">{b.text}</p>;
+  if (b) body = <Prose text={b.text} />;
   else if (flow.generating) body = <p role="status" className="leading-[1.6]">Writing your briefing.</p>;
   else if (flow.loading) body = <p className="leading-[1.6]">Loading.</p>;
   else if (d?.state === "off") body = <p className="leading-[1.6]">{AI_OFF_TEXT}. Set ANTHROPIC_API_KEY to switch the briefing on.</p>;
@@ -59,6 +61,7 @@ function BriefingBubble({ flow }: { flow: ReturnType<typeof useBriefingFlow> }) 
         {b && <span className="t-label">Generated {formatTime(b.generatedAt)}</span>}
       </div>
       {body}
+      {!b && flow.failed && <FailureDetails failure={d?.failure ?? null} />}
       {b && b.staleGroups.length > 0 && <p className="t-label mt-2">Written while {b.staleGroups.join(" and ")} {b.staleGroups.length > 1 || b.staleGroups[0]?.endsWith("s") ? "were" : "was"} out of date.</p>}
     </section>
   );

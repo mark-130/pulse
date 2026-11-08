@@ -1,10 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { sanitiseError } from "../../notify.js";
-import { AiCallError, type LlmBlock, type LlmClient, type LlmRequest, type LlmResponse } from "./llm.js";
+import { shortDetail } from "./failure-detail.js";
+import { AI_TIMEOUT_S, AiFailure, type LlmBlock, type LlmClient, type LlmRequest, type LlmResponse } from "./llm.js";
 
 /** The only place the Anthropic SDK is used. API process only, never bundled into the web app. */
 export function createAnthropicClient(apiKey: string): LlmClient {
-  const sdk = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 1 });
+  const sdk = new Anthropic({ apiKey, timeout: AI_TIMEOUT_S * 1000, maxRetries: 1 });
   return {
     async create(req: LlmRequest): Promise<LlmResponse> {
       try {
@@ -13,6 +13,7 @@ export function createAnthropicClient(apiKey: string): LlmClient {
           max_tokens: req.maxTokens,
           system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
           messages: req.messages as Anthropic.MessageParam[],
+          ...(req.effort ? { output_config: { effort: req.effort } } : {}),
           ...(req.tools?.length ? { tools: req.tools as Anthropic.Tool[] } : {}),
         });
         const content: LlmBlock[] = [];
@@ -32,10 +33,24 @@ export function createAnthropicClient(apiKey: string): LlmClient {
           },
         };
       } catch (err) {
-        // The SDK error text can echo request details. Keep only a sanitised line, and never the key.
-        const status = typeof err === "object" && err !== null && "status" in err && typeof err.status === "number" ? ` (HTTP ${err.status})` : "";
-        throw new AiCallError(`The AI service did not answer${status}. ${sanitiseError(err).replaceAll(apiKey, "[redacted]")}`.slice(0, 300));
+        throw classify(err, apiKey);
       }
     },
   };
+}
+
+/** Maps an SDK error to a plain reason. Only the HTTP status and a short sanitised line are kept, never the key or the request. */
+export function classify(err: unknown, apiKey: string): AiFailure {
+  const status = typeof err === "object" && err !== null && "status" in err && typeof err.status === "number" ? err.status : null;
+  const name = err instanceof Error ? err.constructor.name : "";
+  const detail = shortDetail(err, apiKey);
+  if (name === "APIConnectionTimeoutError" || status === 408) return new AiFailure("timeout");
+  if (status === 404) return new AiFailure("model_not_found", detail);
+  if (status === 401 || status === 403) return new AiFailure("auth");
+  if (status === 429) return new AiFailure("rate_limited");
+  if (status === 529) return new AiFailure("overloaded");
+  if (status !== null && status >= 500) return new AiFailure("service", `HTTP ${status}. ${detail}`.slice(0, 150));
+  if (status !== null) return new AiFailure("rejected", `HTTP ${status}. ${detail}`.slice(0, 150));
+  if (/timed? ?out|ETIMEDOUT/i.test(detail)) return new AiFailure("timeout");
+  return new AiFailure("unknown", detail);
 }

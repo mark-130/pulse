@@ -158,6 +158,7 @@ export function Week() {
               state={review.data.state}
               pending={writeReview.isPending}
               failed={review.data.failed || writeReview.isError || (writeReview.data?.failed ?? false)}
+              failure={review.data.failure}
               onWrite={() => writeReview.mutate(false)}
               onRefresh={() => writeReview.mutate(true)}
             />

@@ -7,6 +7,7 @@ import * as up from "../garmin/upstream.js";
 import { getRaceView } from "../races/data.js";
 import { WEEKLY_REVIEW_TASK } from "./prompts.js";
 import { systemFor } from "./proposal-tools.js";
+import { textFrom } from "./failure.js";
 import { callModel, type AiRuntime } from "./runtime.js";
 import { getStored, putStored } from "./store.js";
 import { wrapData } from "./tools.js";
@@ -14,7 +15,8 @@ import { wrapData } from "./tools.js";
 /** The review never looks further back than this, however long the history is. */
 export const REVIEW_LOOKBACK_DAYS = 28;
 const STALE_AFTER_MIN = 90;
-const MAX_TOKENS = 600;
+/** Room for thinking as well as the text: the models count thinking against this limit (D44). */
+const MAX_TOKENS = 4000;
 
 const mins = (s: number | null) => (s === null ? null : Math.round(s / 60));
 const km = (m: number | null) => (m === null ? null : Math.round(m / 100) / 10);
@@ -144,11 +146,11 @@ export async function generateReview(rt: AiRuntime, ws: string, refresh = false)
   const res = await callModel(rt, "review", {
     model,
     system: systemFor(rt.config),
+    effort: "low",
     maxTokens: MAX_TOKENS,
     messages: [{ role: "user", content: `${WEEKLY_REVIEW_TASK}\n\nContext:\n${wrapData("weekly_review_context", context)}` }],
   });
-  const text = res.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-  if (!text) throw new Error("The model returned no text.");
+  const text = textFrom(res);
   putStored(rt.db, "weekly_review", ws, { text, data: { coversUntil, staleGroups: context.staleGroups }, model, tokens: res.usage.inputTokens + res.usage.outputTokens + res.usage.cacheReadTokens + res.usage.cacheWriteTokens, now: rt.now() });
   return getReview(rt, ws) as Review;
 }

@@ -14,6 +14,8 @@ export interface LlmTool {
 
 export interface LlmRequest {
   model: string;
+  /** How much thinking the model may do. Low keeps short reports from spending the whole output budget on thinking. */
+  effort?: "low" | "medium" | "high";
   /** Static text. It is sent as a cached block. Nothing that changes per request goes in here. */
   system: string;
   messages: LlmMessage[];
@@ -31,5 +33,35 @@ export interface LlmClient {
   create(req: LlmRequest): Promise<LlmResponse>;
 }
 
-/** A failed model call. The message is already safe to log and show: no key, no URL. */
-export class AiCallError extends Error {}
+export type FailureReason = "model_not_found" | "timeout" | "rate_limited" | "overloaded" | "auth" | "rejected" | "service" | "limit" | "unreadable" | "cap" | "unknown";
+
+/** Seconds the SDK waits for one answer before it gives up. */
+export const AI_TIMEOUT_S = 60;
+
+/** A plain reason shown under Details, and logged in the audit record. Never holds a key or a URL. */
+export const FAILURE_LABELS: Record<FailureReason, string> = {
+  model_not_found: "Model not found",
+  timeout: `Timed out after ${AI_TIMEOUT_S} seconds`,
+  rate_limited: "Rate limited",
+  overloaded: "The AI service is overloaded",
+  auth: "The API key was refused",
+  rejected: "The request was rejected",
+  service: "The AI service had an error",
+  limit: "Output limit reached before the text was finished",
+  unreadable: "Response could not be read",
+  cap: "Cap reached",
+  unknown: "The AI service failed",
+};
+
+/** A failed AI call. detail is a short sanitised line, at most 150 characters, already safe to log and show. */
+export class AiFailure extends Error {
+  constructor(
+    readonly reason: FailureReason,
+    readonly detail: string | null = null,
+  ) {
+    super(detail ? `${FAILURE_LABELS[reason]}. ${detail}` : FAILURE_LABELS[reason]);
+  }
+  get label(): string {
+    return FAILURE_LABELS[this.reason];
+  }
+}
