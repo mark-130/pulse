@@ -48,6 +48,7 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - Proposals is reached from the Today proposals card. Settings is reached from the sync status sheet. Both keep their routes.
 
 ## Components
+- Sport icons: runs and planned runs use the runner icon (Tabler "run", MIT, inline SVG in components/SportIcon.tsx, 2px round stroke like the lucide icons). It is used on the Week day cards, the Today session row and any run list. Footprints stay as the fallback for non-running activity types. The icon is aria-hidden because the RECORDED, SCHEDULED or PLANNED label carries the meaning. Tile, size (20px in a 44px tile) and colour are unchanged.
 - Header: split-bar logo mark plus "NGtive Split" in Sora 600 17, and a sync pill ("Synced 07:30"). Tapping the pill opens a sync status sheet with a link to Settings.
 - Orb hero: 96px orb, greeting "Morning, Mark" (by time of day), date line.
 - Briefing bubble: sparkle, "Morning briefing", time, AI chip, text 15 with 1.6 line height.

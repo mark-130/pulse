@@ -1,5 +1,6 @@
+import { SportIcon } from "@/components/SportIcon";
 import { KindNote } from "@/components/KindNote";
-import { Activity, Battery, Check, Footprints, Heart, Minus, Moon, Sparkles, TriangleAlert } from "lucide-react";
+import { Activity, Battery, Check, Heart, Minus, Moon, Sparkles, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { RaceItem, TodayResponse } from "@pulse/shared";
@@ -72,7 +73,7 @@ function Session({ data }: { data: TodayResponse }) {
   return (
     <section className="card md:col-span-3" aria-labelledby="session-title">
       <div className="flex items-center gap-3">
-        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-surface-2 text-accent"><Footprints aria-hidden className="size-5" /></span>
+        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-surface-2 text-accent"><SportIcon sport={first ? first.sport : "running"} /></span>
         <div className="min-w-0 flex-1">
           <p className="t-overline">Today's session</p>
           <h2 id="session-title" className="t-card-title">{first ? first.name : "Nothing scheduled"}</h2>

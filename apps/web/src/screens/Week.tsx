@@ -1,4 +1,5 @@
-import { CalendarClock, ChevronLeft, ChevronRight, Footprints } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { SportIcon } from "@/components/SportIcon";
 import { useSearchParams } from "react-router";
 import type { WeekResponse } from "@pulse/shared";
 import { Chip } from "@/components/Chip";
@@ -22,7 +23,7 @@ function Day({ day, today }: { day: WeekResponse["days"][number]; today: string 
       <ul className="space-y-3">
         {day.workouts.map((w) => (
           <li key={w.scheduledId} className="flex items-center gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-surface-2 text-accent"><CalendarClock aria-hidden className="size-5" /></span>
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-surface-2 text-accent"><SportIcon sport={w.sport} /></span>
             <div className="min-w-0 flex-1">
               <p className="t-overline">Scheduled</p>
               <p className="font-medium">{w.name}</p>
@@ -33,7 +34,7 @@ function Day({ day, today }: { day: WeekResponse["days"][number]; today: string 
         ))}
         {day.activities.map((a) => (
           <li key={a.id} className="flex items-center gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-surface-2 text-accent"><Footprints aria-hidden className="size-5" /></span>
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-surface-2 text-accent"><SportIcon sport={a.type} /></span>
             <div className="min-w-0 flex-1">
               <p className="t-overline">Recorded, {a.startLocal.slice(11, 16)}</p>
               <p className="font-medium">{a.name}</p>
