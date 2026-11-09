@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { z, ZodError } from "zod";
 import { HISTORY_KINDS, type HistoryKindId } from "@pulse/shared";
 import type { Db } from "../../db/index.js";
 import { dailyReading } from "../../db/schema.js";
@@ -22,9 +23,19 @@ export class HistoryError extends Error {
      */
     readonly kind: "timeout" | "rate_limited" | "shape" | "range_too_big" | "auth" | "unreachable" | "failed",
     message: string,
+    /** Technical detail for the server log only (D61), never shown on the card. Short, with no secrets. */
+    readonly detail: string | null = null,
   ) {
     super(message);
   }
+}
+
+/** What the card says when an answer cannot be read. The engine adds the kind and the dates. The detail goes to the log only. */
+export const SHAPE_MESSAGE = "Garmin sent an answer in a shape Pulse did not expect";
+
+/** Which fields failed and why, in a few words, for the log. Holds no values, so no data and no secrets. */
+export function zodDetail(err: ZodError): string {
+  return err.issues.slice(0, 5).map((i) => `${i.path.join(".") || "(answer)"}: ${i.message}`).join("; ").slice(0, 300);
 }
 
 const RATE_LIMITED = /\b429\b|rate.?limit|too many requests|throttl/i;
@@ -35,7 +46,11 @@ const UNREACHABLE = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|
 const RANGE_TOO_BIG = /(date )?range (is |was )?too (big|large|long)|too (big|large|long) (a )?(date )?range|range.{0,30}exceed/i;
 const AUTH = /\b(401|403)\b|unauthori[sz]ed|forbidden|authentication (failed|required|error)|not logged in|login (failed|required)|invalid (token|credentials)|session expired/i;
 
+/** An error message that is really a serialised validation error. It must never reach the card as it is. */
+const LOOKS_LIKE_VALIDATION_JSON = /^\s*[[{][\s\S]*"(code|path|expected)"\s*:/;
+
 export function classifyText(text: string): HistoryError {
+  if (LOOKS_LIKE_VALIDATION_JSON.test(text)) return new HistoryError("shape", SHAPE_MESSAGE, "the error text was a serialised validation error");
   if (RATE_LIMITED.test(text)) return new HistoryError("rate_limited", "Garmin asked us to slow down (rate limited).");
   if (isTimeoutError(text)) return new HistoryError("timeout", "Garmin did not answer in time.");
   if (RANGE_TOO_BIG.test(text)) return new HistoryError("range_too_big", "Garmin rejected the date range as too long.");
@@ -49,6 +64,7 @@ export const isFatal = (e: HistoryError): boolean => e.kind === "auth" || e.kind
 
 export function classify(err: unknown): HistoryError {
   if (err instanceof HistoryError) return err;
+  if (err instanceof ZodError) return new HistoryError("shape", SHAPE_MESSAGE, zodDetail(err));
   const text = err instanceof Error ? err.message : String(err);
   const status = typeof err === "object" && err !== null && "status" in err && typeof (err as { status: unknown }).status === "number" ? (err as { status: number }).status : null;
   if (status === 429) return new HistoryError("rate_limited", "Garmin asked us to slow down (rate limited).");
@@ -73,7 +89,10 @@ async function call(session: GarminSession, tool: GarminReadTool, args: Record<s
     if (/^no\b/i.test(res.text.trim())) return null;
     throw classifyText(res.text);
   }
-  return res.data;
+  // An empty list or an empty object is an empty answer, the same as "No data": a complete window with zero rows.
+  const d = res.data;
+  if ((Array.isArray(d) && d.length === 0) || (typeof d === "object" && d !== null && !Array.isArray(d) && Object.keys(d).length === 0)) return null;
+  return d;
 }
 
 // ---------------------------------------------------------------- tolerant reading of range answers
@@ -156,7 +175,7 @@ export interface DaySpec {
   fetchDay(session: GarminSession, date: string, h: Helpers): Promise<number>;
 }
 
-const shape = (what: string) => new HistoryError("shape", `Unexpected answer shape: ${what}.`);
+const shape = (what: string, err?: ZodError) => new HistoryError("shape", SHAPE_MESSAGE, `${what}${err ? `: ${zodDetail(err)}` : ""}`);
 
 const sleepRange: RangeSpec = {
   id: "sleep",
@@ -213,17 +232,28 @@ const bodyBatteryRange: RangeSpec = {
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
-    const p = up.bodyBatterySchema.safeParse(data);
-    if (!p.success) throw shape("body battery");
+    // Normally a list of days. Fields the app does not need are optional, and a wrapper object is read too.
+    const list = Array.isArray(data) ? data.filter(isObj) : listFrom(data);
+    if (!list) {
+      if (isObj(data) && Object.keys(data).length === 0) return 0;
+      throw shape("body battery");
+    }
     let rows = 0;
-    for (const e of p.data) {
-      if (e.charged == null) continue;
-      putReading(h.db, "body_battery", e.date, e.charged, e.drained ?? null);
+    for (const e of list) {
+      const date = dateOf(e);
+      const charged = numberFrom(e, ["charged", "body_battery_charged"]);
+      if (!date || charged === null) continue;
+      putReading(h.db, "body_battery", date, charged, numberFrom(e, ["drained", "body_battery_drained"]));
       rows++;
     }
     return rows;
   },
 };
+
+/** Every field is optional except what a point needs: a date and a value. A day without one is skipped, not a failure. */
+const vo2History = z.object({
+  trend: z.array(z.object({ date: z.string().nullish(), vo2_max: z.number().nullish(), carried_forward: z.boolean().nullish() })).nullish(),
+});
 
 const vo2Range: RangeSpec = {
   id: "vo2max",
@@ -233,12 +263,20 @@ const vo2Range: RangeSpec = {
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
-    const p = up.vo2Schema.safeParse(data);
-    if (!p.success) throw shape("VO2 max trend");
-    h.db.transaction(() => applyVo2(p.data, h.ctx));
-    return p.data.trend.length;
+    const p = vo2History.safeParse(data);
+    if (!p.success) throw shape("VO2 max trend", p.error);
+    const trend = (p.data.trend ?? []).flatMap((t) => (t.date && t.vo2_max != null ? [{ date: t.date.slice(0, 10), vo2_max: t.vo2_max, carried_forward: t.carried_forward ?? false }] : []));
+    h.db.transaction(() => applyVo2({ trend }, h.ctx));
+    return trend.length;
   },
 };
+
+/** Garmin's answer has more than this (contributors, classification ids). Only the score and the weekly averages are used, and none is required. */
+const enduranceHistory = z.object({
+  current_score: z.number().nullish(),
+  current_date: z.string().nullish(),
+  weekly_breakdown: z.array(z.object({ week_start: z.string().nullish(), avg_score: z.number().nullish() })).nullish(),
+});
 
 const enduranceRange: RangeSpec = {
   id: "endurance",
@@ -248,12 +286,13 @@ const enduranceRange: RangeSpec = {
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
-    const p = up.enduranceSchema.safeParse(data);
-    if (!p.success) throw shape("endurance score");
+    const p = enduranceHistory.safeParse(data);
+    if (!p.success) throw shape("endurance score", p.error);
     let rows = 0;
     // Garmin's weekly averages, dated by the week's first day, and the current score when it has a date.
-    for (const w of p.data.weekly_breakdown) {
-      putReading(h.db, "endurance", w.week_start, w.avg_score);
+    for (const w of p.data.weekly_breakdown ?? []) {
+      if (!w.week_start || w.avg_score == null) continue;
+      putReading(h.db, "endurance", w.week_start.slice(0, 10), w.avg_score);
       rows++;
     }
     if (p.data.current_score != null && p.data.current_date) {
@@ -264,6 +303,10 @@ const enduranceRange: RangeSpec = {
   },
 };
 
+const hillHistory = z.object({
+  daily_scores: z.array(z.object({ date: z.string().nullish(), overall: z.number().nullish(), strength: z.number().nullish(), endurance: z.number().nullish() })).nullish(),
+});
+
 const hillRange: RangeSpec = {
   id: "hill",
   tool: "get_hill_score",
@@ -272,17 +315,23 @@ const hillRange: RangeSpec = {
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
-    const p = up.hillSchema.safeParse(data);
-    if (!p.success) throw shape("hill score");
+    const p = hillHistory.safeParse(data);
+    if (!p.success) throw shape("hill score", p.error);
     let rows = 0;
     for (const d of p.data.daily_scores ?? []) {
-      if (d.overall == null) continue;
+      if (!d.date || d.overall == null) continue;
       putReading(h.db, "hill", d.date.slice(0, 10), d.overall, d.strength ?? null, d.endurance ?? null);
       rows++;
     }
     return rows;
   },
 };
+
+/** Garmin's lactate threshold history: a heart rate list and a speed list, by day, and a power list the app does not use. */
+const lactateHistory = z.object({
+  heart_rate_history: z.array(z.object({ date: z.string().nullish(), heart_rate_bpm: z.number().nullish() })).nullish(),
+  speed_history: z.array(z.object({ date: z.string().nullish(), speed_mps: z.number().nullish() })).nullish(),
+});
 
 const lactateRange: RangeSpec = {
   id: "lactate",
@@ -292,6 +341,20 @@ const lactateRange: RangeSpec = {
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
+    if (isObj(data) && ("heart_rate_history" in data || "speed_history" in data || "power_history" in data)) {
+      const p = lactateHistory.safeParse(data);
+      if (!p.success) throw shape("lactate threshold", p.error);
+      const speeds = new Map((p.data.speed_history ?? []).flatMap((x) => (x.date && x.speed_mps != null ? [[x.date.slice(0, 10), x.speed_mps] as const] : [])));
+      let rows = 0;
+      for (const x of p.data.heart_rate_history ?? []) {
+        if (!x.date || x.heart_rate_bpm == null) continue;
+        const date = x.date.slice(0, 10);
+        putReading(h.db, "lactate", date, x.heart_rate_bpm, speeds.get(date) ?? null);
+        rows++;
+      }
+      return rows;
+    }
+    // The latest-only shape, and a list of dated entries, in case the server answers that way for some ranges.
     let rows = 0;
     const single = up.lactateSchema.safeParse(data);
     if (single.success && single.data.lactate_threshold_heart_rate_bpm != null && single.data.speed_hr_date) {

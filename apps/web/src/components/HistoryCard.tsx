@@ -20,7 +20,10 @@ function Details({ s }: { s: HistoryStatus }) {
         )}
         {s.failedWindows.length > 0 && (
           <ul className="space-y-1">
-            {s.failedWindows.map((w) => <li key={`${w.kind}-${w.from}`}>{w.label}, {formatDate(w.from)} to {formatDate(w.to)}: {w.reason}</li>)}
+            {s.failedWindows.map((w) => (
+              // A reason that already names the kind and the dates (an answer in an unexpected shape) is shown as it is.
+              <li key={`${w.kind}-${w.from}`}>{w.reason.includes(`(${w.label}, `) ? w.reason : `${w.label}, ${formatDate(w.from)} to ${formatDate(w.to)}: ${w.reason}`}</li>
+            ))}
           </ul>
         )}
       </div>

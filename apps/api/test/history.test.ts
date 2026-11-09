@@ -7,7 +7,8 @@ import { activity, backfillProgress, dailyReading, garminSnapshot, vo2maxPoint }
 import { GARMIN_READ_TOOLS, type GarminConnector, type GarminReadTool, type GarminResult } from "../src/modules/garmin/client.js";
 import { GARMIN_WRITE_TOOLS } from "../src/modules/proposals/executors/garmin.js";
 import { FAILED_WINDOWS_PER_KIND, PER_DAY_CONCURRENCY, RATE_BASE_MS, WINDOW_PAUSE_MS, doneDays, loadState, nextWindow, runOrder, saveState } from "../src/modules/history/engine.js";
-import { RANGE_LIMITS, RANGE_SPECS, classifyText } from "../src/modules/history/kinds.js";
+import { z, type ZodError } from "zod";
+import { RANGE_LIMITS, RANGE_SPECS, SHAPE_MESSAGE, classify, classifyText } from "../src/modules/history/kinds.js";
 import { shouldYield } from "../src/modules/history/module.js";
 import { getHistorySummary, getYearOnYear, monthly, withAverage7, yearAgo } from "../src/modules/history/queries.js";
 import { runTool } from "../src/modules/ai/tools.js";
@@ -597,6 +598,102 @@ describe("history import: what still stops everything (D60)", () => {
     expect(all).not.toContain(FAKE_KEY);
     expect(all).not.toMatch(/garmin-mcp\.example/);
     expect(all).not.toContain("Bearer");
+  });
+});
+
+// The real answer shapes of the four newer kinds, from one read-only call each for 27/10/2026 to 09/11/2026 (D61). Abbreviated, not changed.
+const REAL = {
+  get_vo2max_trend: { start_date: "2026-10-27", end_date: "2026-11-09", data_points: 3, first_vo2_max: 46.3, latest_vo2_max: 45.9, change: -0.4, trend: [{ date: "2026-10-27", vo2_max: 46.3, source: "get_training_status", carried_forward: true }, { date: "2026-10-30", vo2_max: 45.9, source: "get_max_metrics" }, { date: "2026-11-09", vo2_max: 45.9, source: "get_max_metrics", carried_forward: true }], sport: "running" },
+  get_endurance_score: { start_date: "2026-10-27", end_date: "2026-11-09", period_avg_score: 5705, period_max_score: 5730, current_score: 5724, current_date: "2026-11-09", classification: "trained", classification_id: 3, thresholds: { intermediate: 4900, trained: 5500 }, contributors: [{ contribution_percent: 86.15, group: "running (?)" }, { group: "Other Activities" }], weekly_breakdown: [{ week_start: "2026-10-27", avg_score: 5701, max_score: 5724, contributors: [{ contribution_percent: 13.44, activity_type: "walking", activity_type_id: 9 }] }, { week_start: "2026-11-03", avg_score: 5710, max_score: 5730, contributors: [] }] },
+  get_hill_score: { start_date: "2026-10-27", end_date: "2026-11-09", period_avg_score: 35, max_score: 36, latest_date: "2026-11-09", latest_overall_score: 35, latest_strength_score: 19, latest_endurance_score: 14, latest_classification_id: 2, daily_scores: [{ date: "2026-11-09", overall: 35, strength: 19, endurance: 14 }, { date: "2026-11-08", overall: 36, strength: 19, endurance: 15 }, { date: "2026-10-27", overall: 36, strength: 21, endurance: 14 }] },
+  get_lactate_threshold: { start_date: "2026-10-27", end_date: "2026-11-09", speed_history: [{ date: "2026-10-31", speed_mps: 3.1388801000000006, series: "running" }, { date: "2026-11-04", speed_mps: 3.1388801000000006, series: "running" }], heart_rate_history: [{ date: "2026-10-31", heart_rate_bpm: 164.0, series: "running" }, { date: "2026-11-04", heart_rate_bpm: 162.0, series: "running" }], power_history: [{ date: "2026-10-27", power_watts: 359.0, series: "running" }, { date: "2026-10-28", power_watts: 359.0, series: "running" }] },
+} as const;
+const realHandler: Handler = (tool) => (tool in REAL ? json(REAL[tool as keyof typeof REAL]) : undefined);
+const NEW_KINDS = ["vo2max", "endurance", "hill", "lactate"] as const;
+
+describe("history import: the real answer shapes of the newer kinds (D61)", () => {
+  it("reads the real answers: VO2 max, endurance score, hill score and lactate threshold all store rows and finish", async () => {
+    const s = await setup({ days: 30, handler: realHandler });
+    const st = await s.run();
+    expect(st.state).toBe("complete");
+    expect(st.failedWindows).toEqual([]);
+    for (const id of NEW_KINDS) expect(st.kinds.find((k) => k.id === id), id).toMatchObject({ done: 30, failed: 0, state: "done" });
+    const vo2 = s.t.handle.db.select().from(vo2maxPoint).all();
+    expect(vo2.find((p) => p.date === "2026-10-30")).toMatchObject({ value: 45.9, carriedForward: false });
+    expect(vo2.find((p) => p.date === "2026-10-27")).toMatchObject({ carriedForward: true });
+    expect(s.readings("endurance").map((r) => [r.date, r.value]).sort()).toEqual(expect.arrayContaining([["2026-10-27", 5701], ["2026-11-03", 5710], ["2026-11-09", 5724]]));
+    expect(s.readings("hill").find((r) => r.date === "2026-11-08")).toMatchObject({ value: 36, value2: 19, value3: 15 });
+    // Lactate: the heart rate history, with the speed of the same day. The power list is not used.
+    expect(s.readings("lactate").map((r) => [r.date, r.value, r.value2 === null ? null : Math.round(r.value2 * 100) / 100]).sort()).toEqual([["2026-10-31", 164, 3.14], ["2026-11-04", 162, 3.14]]);
+  });
+
+  it("a missing flag or field never fails a window: every field the app does not need is optional", async () => {
+    const bare: Record<string, unknown> = {
+      get_vo2max_trend: { trend: [{ date: "2026-11-01" }, { vo2_max: 46 }, { date: "2026-11-02", vo2_max: 46.1 }] },
+      get_endurance_score: { weekly_breakdown: [{ week_start: "2026-11-02" }, { avg_score: 5000 }, { week_start: "2026-11-09", avg_score: 5724 }] },
+      get_hill_score: { daily_scores: [{ date: "2026-11-02" }, { overall: 30 }, { date: "2026-11-03", overall: 33 }] },
+      get_lactate_threshold: { heart_rate_history: [{ date: "2026-11-02" }, { heart_rate_bpm: 160 }, { date: "2026-11-03", heart_rate_bpm: 161 }] },
+    };
+    const s = await setup({ days: 30, handler: (tool) => (tool in bare ? json(bare[tool]) : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("complete");
+    expect(st.failedWindows).toEqual([]);
+    expect(s.t.handle.db.select().from(vo2maxPoint).all().map((p) => p.date)).toContain("2026-11-02");
+    expect(s.readings("endurance").map((r) => r.date)).toContain("2026-11-09");
+    expect(s.readings("hill").map((r) => r.date)).toEqual(["2026-11-03"]);
+    expect(s.readings("lactate").map((r) => [r.date, r.value, r.value2])).toEqual([["2026-11-03", 161, null]]);
+  });
+
+  it("an empty answer is a complete window with zero rows, in every form", async () => {
+    for (const empty of [{}, [], { trend: [], daily_scores: [], weekly_breakdown: [], heart_rate_history: [], speed_history: [], power_history: [] }]) {
+      const s = await setup({ days: 30, handler: (tool) => (NEW_KINDS.some((k) => RANGE_SPECS[k]?.tool === tool) ? json(empty) : undefined) });
+      const st = await s.run();
+      expect(st.state, JSON.stringify(empty)).toBe("complete");
+      for (const id of NEW_KINDS) expect(st.kinds.find((k) => k.id === id), id).toMatchObject({ done: 30, failed: 0, state: "done" });
+    }
+    const s2 = await setup({ days: 30, handler: (tool) => (NEW_KINDS.some((k) => RANGE_SPECS[k]?.tool === tool) ? msg("No data found for this range") : undefined) });
+    expect((await s2.run()).state).toBe("complete");
+  });
+
+  it("a genuinely malformed answer fails only its own window, with a plain sentence and never raw JSON", async () => {
+    const logs: string[] = [];
+    const s = await setup({ days: 30, logs, handler: (tool) => (tool === "get_vo2max_trend" ? json({ trend: "not a list" }) : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("complete_with_issues");
+    const sentence = "Garmin sent an answer in a shape Pulse did not expect (VO2 max, 11/10/2026 to 09/11/2026)";
+    expect(st.failedWindows).toEqual([{ kind: "vo2max", label: "VO2 max", from: "2026-10-11", to: "2026-11-09", reason: sentence }]);
+    expect(st.kinds.find((k) => k.id === "vo2max")).toMatchObject({ state: "attention", reason: sentence });
+    const all = [JSON.stringify(st), JSON.stringify(s.progress()), await (await s.t.get("/api/history")).text()].join("\n");
+    expect(all).not.toMatch(/invalid_type|"expected"|"code"|"path"|Invalid input|\[ \{/);
+    // The technical detail is in the server log only, and it holds no values and no secrets.
+    const line = logs.find((l) => l.includes("unexpected shape"));
+    expect(line).toContain("VO2 max trend: trend:");
+    expect(logs.join("\n")).not.toContain(FAKE_KEY);
+    // The other kinds finished.
+    for (const id of ["endurance", "hill", "lactate", "body_battery", "sleep"]) expect(st.kinds.find((k) => k.id === id), id).toMatchObject({ state: "done" });
+  });
+
+  it("Start again after a malformed answer retries only that window", async () => {
+    let bad = true;
+    const s = await setup({ days: 30, handler: (tool) => (tool === "get_hill_score" && bad ? json({ daily_scores: 7 }) : undefined) });
+    expect((await s.run()).state).toBe("complete_with_issues");
+    const before = s.g.calls.length;
+    bad = false;
+    const st = await s.run();
+    expect(st.state).toBe("complete");
+    expect(new Set(s.g.calls.slice(before).map((c) => c.tool))).toEqual(new Set(["get_hill_score"]));
+  });
+
+  it("a validation error is never shown as it is, whichever way it reaches the engine", () => {
+    const zodErr = (() => { try { z.object({ incomplete: z.boolean() }).parse({}); } catch (e) { return e as ZodError; } throw new Error("no error"); })();
+    const a = classify(zodErr);
+    expect(a).toMatchObject({ kind: "shape", message: SHAPE_MESSAGE });
+    expect(a.detail).toContain("incomplete");
+    const raw = '[ { "expected": "boolean", "code": "invalid_type", "path": [ "incomplete" ], "message": "Invalid input: expected boolean, received undefined" } ]';
+    const b = classifyText(raw);
+    expect(b).toMatchObject({ kind: "shape", message: SHAPE_MESSAGE });
+    expect(b.message).not.toContain("invalid_type");
+    expect(b.detail).not.toContain("incomplete");
   });
 });
 

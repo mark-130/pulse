@@ -91,6 +91,14 @@ describe("history import card", () => {
     expect(stateLine({ ...base, state: "complete_with_issues" })).toBe("Complete with issues.");
   });
 
+  it("a plain shape sentence that already names the kind and the dates is not repeated with a prefix", () => {
+    const sentence = "Garmin sent an answer in a shape Pulse did not expect (VO2 max, 14/11/2024 to 27/11/2024)";
+    const h = html({ ...base, state: "complete_with_issues", kinds: [{ id: "vo2max", label: "VO2 max", done: 0, total: 730, failed: 1, state: "attention", reason: sentence }], failedWindows: [{ kind: "vo2max", label: "VO2 max", from: "2024-11-14", to: "2024-11-27", reason: sentence }] });
+    expect(h).toContain(`<li>${sentence.replace("(", "(")}</li>`);
+    expect(h).not.toContain("VO2 max, 14/11/2024 to 27/11/2024: Garmin");
+    expect(h).not.toMatch(/invalid_type|expected&quot;|"code"|\[ \{/);
+  });
+
   it("does not list needs attention while the import is still running", () => {
     expect(html({ ...base, state: "running", kinds: attention })).not.toContain("need attention");
   });

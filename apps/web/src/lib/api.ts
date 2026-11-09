@@ -34,5 +34,12 @@ export async function api<T>(path: string, schema: z.ZodType<T>, init: { method?
     const failure = typeof data === "object" && data !== null && "failure" in data ? aiFailureSchema.safeParse(data.failure) : null;
     throw new ApiRequestError(msg, res.status, failure?.success ? failure.data : null);
   }
-  return schema.parse(data);
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) {
+    // Never show the validation error: it is raw JSON. The usual cause is a page from before an update talking to the updated
+    // app, which a reload fixes. The detail stays in the browser console, with no values in it.
+    console.warn(`${method} ${path.split("?")[0]}: the answer did not match what this page expects`, parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".") || "(answer)"}: ${i.message}`));
+    throw new ApiRequestError("This page is out of date with the app. Reload it to update.", res.status);
+  }
+  return parsed.data;
 }

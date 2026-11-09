@@ -5,7 +5,7 @@ import type { Db } from "../../db/index.js";
 import { backfillProgress, settings } from "../../db/schema.js";
 import type { Logger } from "../../logger.js";
 import type { GarminConnector, GarminSession } from "../garmin/client.js";
-import { classify, DAY_SPECS, HistoryError, isFatal, RANGE_SPECS, storedDays, type DaySpec, type Helpers, type RangeSpec } from "./kinds.js";
+import { classify, DAY_SPECS, HistoryError, isFatal, RANGE_SPECS, SHAPE_MESSAGE, storedDays, type DaySpec, type Helpers, type RangeSpec } from "./kinds.js";
 
 /**
  * The history import engine (D51, D60). One-off, read only, resumable. Gentle on purpose: windows one at a time, a pause
@@ -130,6 +130,8 @@ async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
+
+const dmy = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 
 const halve = (from: string, to: string) => {
   const size = Math.ceil((daysBetween(from, to) + 1) / 2);
@@ -299,8 +301,15 @@ export async function runImport(deps: EngineDeps): Promise<ImportState["state"]>
               dayMode = true;
               continue;
             }
-            outcome = { status: "failed", reason: classify(err).message };
-            record(deps, kind, win.from, win.to, "failed", 0, (outcome as { reason: string }).reason);
+            const e = classify(err);
+            let reason = e.message;
+            if (e.kind === "shape") {
+              // A plain sentence for the card, with the kind and the dates. The technical detail goes to the server log only.
+              reason = `${SHAPE_MESSAGE} (${meta.label}, ${dmy(win.from)} to ${dmy(win.to)})`;
+              deps.log.warn({ kind, from: win.from, to: win.to, detail: e.detail }, "history answer in an unexpected shape");
+            }
+            outcome = { status: "failed", reason };
+            record(deps, kind, win.from, win.to, "failed", 0, reason);
           }
         } finally {
           await session.close().catch(() => undefined);
