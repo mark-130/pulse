@@ -107,6 +107,10 @@ export function listFrom(data: unknown): Record<string, unknown>[] | null {
   return null;
 }
 
+/** Keys Garmin repeats back or counts with. An answer with only these has no data in it: an empty window (D62). */
+const ECHO_KEYS = new Set(["start_date", "end_date", "startDate", "endDate", "count", "total", "data_points", "message"]);
+export const isEchoOnly = (data: unknown): boolean => isObj(data) && Object.keys(data).every((k) => ECHO_KEYS.has(k));
+
 const DATE_KEYS = ["date", "calendar_date", "calendarDate", "sleep_date", "day", "start_date"];
 export function dateOf(o: Record<string, unknown>): string | null {
   for (const k of DATE_KEYS) {
@@ -185,6 +189,7 @@ const sleepRange: RangeSpec = {
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
+    if (isEchoOnly(data)) return 0;
     const list = listFrom(data);
     if (!list) throw shape("sleep range");
     let rows = 0;
@@ -209,6 +214,7 @@ const hrvRange: RangeSpec = {
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
+    if (isEchoOnly(data)) return 0;
     const list = listFrom(data);
     if (!list) throw shape("HRV trend");
     let rows = 0;
@@ -235,7 +241,8 @@ const bodyBatteryRange: RangeSpec = {
     // Normally a list of days. Fields the app does not need are optional, and a wrapper object is read too.
     const list = Array.isArray(data) ? data.filter(isObj) : listFrom(data);
     if (!list) {
-      if (isObj(data) && Object.keys(data).length === 0) return 0;
+      // Garmin repeats the dates and nothing else when a range has no data.
+      if (isEchoOnly(data)) return 0;
       throw shape("body battery");
     }
     let rows = 0;
@@ -341,41 +348,46 @@ const lactateRange: RangeSpec = {
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
-    if (isObj(data) && ("heart_rate_history" in data || "speed_history" in data || "power_history" in data)) {
-      const p = lactateHistory.safeParse(data);
-      if (!p.success) throw shape("lactate threshold", p.error);
-      const speeds = new Map((p.data.speed_history ?? []).flatMap((x) => (x.date && x.speed_mps != null ? [[x.date.slice(0, 10), x.speed_mps] as const] : [])));
-      let rows = 0;
-      for (const x of p.data.heart_rate_history ?? []) {
-        if (!x.date || x.heart_rate_bpm == null) continue;
-        const date = x.date.slice(0, 10);
-        putReading(h.db, "lactate", date, x.heart_rate_bpm, speeds.get(date) ?? null);
-        rows++;
-      }
-      return rows;
-    }
-    // The latest-only shape, and a list of dated entries, in case the server answers that way for some ranges.
-    let rows = 0;
+    if (Array.isArray(data)) return lactateEntries(h, data.filter(isObj));
+    if (!isObj(data)) throw shape("lactate threshold");
+    // The latest-only shape, in case the server answers that way.
     const single = up.lactateSchema.safeParse(data);
     if (single.success && single.data.lactate_threshold_heart_rate_bpm != null && single.data.speed_hr_date) {
       putReading(h.db, "lactate", single.data.speed_hr_date.slice(0, 10), single.data.lactate_threshold_heart_rate_bpm, single.data.lactate_threshold_speed_mps ?? null);
       return 1;
     }
-    const list = listFrom(data);
-    if (!list) {
-      if (isObj(data) && Object.keys(data).length === 0) return 0;
-      throw shape("lactate threshold");
-    }
-    for (const el of list) {
-      const date = dateOf(el) ?? (typeof el.speed_hr_date === "string" ? el.speed_hr_date.slice(0, 10) : null);
-      const hr = numberFrom(el, ["lactate_threshold_heart_rate_bpm", "heart_rate_bpm", "heart_rate", "hr"]);
-      if (!date || hr === null) continue;
-      putReading(h.db, "lactate", date, hr, numberFrom(el, ["lactate_threshold_speed_mps", "speed_mps", "speed"]));
+    // The history shape. Every list is optional and unknown keys are ignored (D62): with no lactate data in the range Garmin
+    // sends only start_date and end_date, and with only power data it sends just power_history. Both are complete windows.
+    const p = lactateHistory.safeParse(data);
+    if (!p.success) throw shape("lactate threshold", p.error);
+    const speeds = new Map((p.data.speed_history ?? []).flatMap((x) => (x.date && x.speed_mps != null ? [[x.date.slice(0, 10), x.speed_mps] as const] : [])));
+    let rows = 0;
+    for (const x of p.data.heart_rate_history ?? []) {
+      if (!x.date || x.heart_rate_bpm == null) continue;
+      const date = x.date.slice(0, 10);
+      putReading(h.db, "lactate", date, x.heart_rate_bpm, speeds.get(date) ?? null);
       rows++;
+    }
+    // A list of dated entries under any other name, as older answers had.
+    if (rows === 0 && !("heart_rate_history" in data) && !("speed_history" in data) && !("power_history" in data)) {
+      const list = listFrom(data);
+      if (list) rows += lactateEntries(h, list);
     }
     return rows;
   },
 };
+
+function lactateEntries(h: Helpers, list: Record<string, unknown>[]): number {
+  let rows = 0;
+  for (const el of list) {
+    const date = dateOf(el) ?? (typeof el.speed_hr_date === "string" ? el.speed_hr_date.slice(0, 10) : null);
+    const hr = numberFrom(el, ["lactate_threshold_heart_rate_bpm", "heart_rate_bpm", "heart_rate", "hr"]);
+    if (!date || hr === null) continue;
+    putReading(h.db, "lactate", date, hr, numberFrom(el, ["lactate_threshold_speed_mps", "speed_mps", "speed"]));
+    rows++;
+  }
+  return rows;
+}
 
 const activitiesRange: RangeSpec = {
   id: "activities",
@@ -387,7 +399,7 @@ const activitiesRange: RangeSpec = {
     // Newest first, in pages. Summaries only: name, date, type, distance, duration, average and maximum heart rate.
     for (let page = 0; page < 8; page++) {
       const data = await call(session, this.tool, { start_date: from, end_date: to, page, page_size: 100 });
-      if (data === null) break;
+      if (data === null || isEchoOnly(data)) break;
       const p = up.activitiesSchema.safeParse(data);
       if (!p.success) throw shape("activities");
       h.db.transaction(() => applyActivities(p.data, h.ctx));

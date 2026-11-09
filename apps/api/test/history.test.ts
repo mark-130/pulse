@@ -697,6 +697,65 @@ describe("history import: the real answer shapes of the newer kinds (D61)", () =
   });
 });
 
+describe("history import: ranges with no data (D62)", () => {
+  // Checked live: a window with no lactate data comes back as only the two dates, one with data as just power_history.
+  const ECHO = { start_date: "2026-10-27", end_date: "2026-11-09" };
+  const POWER_ONLY = { ...ECHO, power_history: [{ date: "2026-10-01", power_watts: 359.0, series: "running" }, { date: "2026-10-02", power_watts: 354.0, series: "running" }] };
+
+  it("an answer with only start_date and end_date is a complete window with zero rows, for every range kind", async () => {
+    const tools = ["get_lactate_threshold", "get_vo2max_trend", "get_endurance_score", "get_hill_score", "get_body_battery", "get_sleep_summary_range", "get_hrv_trend", "get_activities_by_date"];
+    const s = await setup({ days: 30, handler: (tool) => (tools.includes(tool) ? json(ECHO) : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("complete");
+    expect(st.failedWindows).toEqual([]);
+    for (const id of ["lactate", "vo2max", "endurance", "hill", "body_battery", "sleep", "hrv", "activities"]) expect(st.kinds.find((k) => k.id === id), id).toMatchObject({ done: 30, failed: 0, state: "done" });
+    expect(s.readings("lactate")).toHaveLength(0);
+    expect(s.progress().filter((p) => p.kind === "lactate").every((p) => p.status === "done" && p.rows === 0)).toBe(true);
+  });
+
+  it("an answer with only power_history parses, stores no lactate rows and is complete", async () => {
+    const s = await setup({ days: 30, handler: (tool) => (tool === "get_lactate_threshold" ? json(POWER_ONLY) : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("complete");
+    expect(st.kinds.find((k) => k.id === "lactate")).toMatchObject({ done: 30, failed: 0, state: "done" });
+    expect(s.readings("lactate")).toHaveLength(0);
+  });
+
+  it("a heart rate list with unknown extra keys still parses, and the unknown keys are ignored", async () => {
+    const s = await setup({ days: 30, handler: (tool) => (tool === "get_lactate_threshold" ? json({ ...ECHO, something_new: { a: 1 }, heart_rate_history: [{ date: "2026-11-04", heart_rate_bpm: 162.0, series: "running", extra: true }] }) : undefined) });
+    await s.run();
+    expect(s.readings("lactate").map((r) => [r.date, r.value])).toEqual([["2026-11-04", 162]]);
+  });
+
+  it("a genuinely malformed lactate answer still fails only its own window, with the plain sentence", async () => {
+    const s = await setup({ days: 30, handler: (tool) => (tool === "get_lactate_threshold" ? json({ ...ECHO, heart_rate_history: "oops" }) : tool === "get_hill_score" ? json(ECHO) : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("complete_with_issues");
+    expect(st.failedWindows.map((w) => w.kind)).toEqual(["lactate", "lactate", "lactate"]); // 30 days in 14 day windows
+    expect(st.failedWindows[0]?.reason).toMatch(/^Garmin sent an answer in a shape Pulse did not expect \(Lactate threshold, \d\d\/\d\d\/\d{4} to \d\d\/\d\d\/\d{4}\)$/);
+    expect(JSON.stringify(st)).not.toMatch(/invalid_type|"expected"|"code"|"path"/);
+    for (const id of ["hill", "vo2max", "endurance", "body_battery"]) expect(st.kinds.find((k) => k.id === id), id).toMatchObject({ state: "done" });
+  });
+
+  it("an answer that is not an object at all is a malformed answer, not an empty one", async () => {
+    const s = await setup({ days: 30, handler: (tool) => (tool === "get_lactate_threshold" ? json("surprise") : undefined) });
+    const st = await s.run();
+    expect(st.kinds.find((k) => k.id === "lactate")).toMatchObject({ state: "attention", done: 0 });
+  });
+
+  it("Start again retries only the failed lactate windows, and finishes once Garmin's answer is readable", async () => {
+    let bad = true;
+    const s = await setup({ days: 30, handler: (tool) => (tool === "get_lactate_threshold" && bad ? json({ ...ECHO, heart_rate_history: "oops" }) : undefined) });
+    expect((await s.run()).state).toBe("complete_with_issues");
+    const before = s.g.calls.length;
+    bad = false;
+    const st = await s.run();
+    expect(st.state).toBe("complete");
+    expect(new Set(s.g.calls.slice(before).map((c) => c.tool))).toEqual(new Set(["get_lactate_threshold"]));
+    expect(st.failedWindows).toEqual([]);
+  });
+});
+
 describe("history: charts, year on year and the AI summary", () => {
   const seedYears = async () => {
     const t = await makeGarminApp({ clock });
