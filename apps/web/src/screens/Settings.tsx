@@ -75,7 +75,7 @@ export function Settings() {
       <UpdateCard />
       <HistoryCard />
       <Button variant="secondary" onClick={() => void logout()}>
-        Sign out
+        Sign out of all devices
       </Button>
     </div>
   );

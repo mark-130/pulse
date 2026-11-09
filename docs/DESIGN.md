@@ -151,3 +151,4 @@ Orb hero, briefing, prompt chips, readings, session, race, the six readings tile
 - Loading skeletons (static, no shimmer), plain error messages with Retry.
 - Charts: Recharts, pace as min/km, labelled axes, table fallback for accessibility.
 - Every AI-written block carries the sparkle icon and an "AI" chip (see docs/AI.md).
+- Sign out (Settings, last button): reads "Sign out of all devices", because signing out revokes every session on the server (D56). Secondary style, 44px, no confirm dialog.

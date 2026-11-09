@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
+import { dbSessionEpoch } from "./auth/epoch.js";
 import { loadConfig } from "./config.js";
 import { openDb } from "./db/index.js";
 import { createLogger } from "./logger.js";
@@ -81,7 +82,7 @@ modules.push(
     onApplied: () => void garmin.runNow().catch(() => undefined),
   }),
 );
-const app = createApp({ config, log, modules });
+const app = createApp({ config, log, modules, sessionEpoch: dbSessionEpoch(db) });
 const crons = startJobs(modules, log);
 // Catch up shortly after boot instead of waiting up to 30 minutes.
 setTimeout(() => void garmin.tick(), 10_000);

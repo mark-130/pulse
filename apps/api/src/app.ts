@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { loginRequestSchema, type HealthResponse, type SessionResponse } from "@pulse/shared";
 import { buildInfo } from "./modules/update/build.js";
 import { verifyPassword } from "./auth/password.js";
+import { memorySessionEpoch, type SessionEpoch } from "./auth/epoch.js";
 import { RateLimiter } from "./auth/rate-limit.js";
 import { SESSION_COOKIE, SESSION_MAX_AGE_S, createSessionToken, csrfMatches, readSessionToken, type SessionPayload } from "./auth/session.js";
 import type { Config } from "./config.js";
@@ -21,16 +22,18 @@ export interface AppDeps {
   log: Logger;
   modules?: ApiModule[];
   version?: string;
+  /** Server-side session revocation. Defaults to an in-memory epoch when no database is given. */
+  sessionEpoch?: SessionEpoch;
 }
 
-export function createApp({ config, log, modules = [], version = "0.0.0" }: AppDeps) {
+export function createApp({ config, log, modules = [], version = "0.0.0", sessionEpoch = memorySessionEpoch() }: AppDeps) {
   const app = new Hono<Env>();
   const loginLimiter = new RateLimiter(5, 15 * 60 * 1000);
   const dummyHash = `${"0".repeat(32)}:${"0".repeat(128)}`;
 
   // Session and CSRF. Public routes: health, login, session. Everything else under /api needs both.
   app.use("/api/*", async (c, next) => {
-    const session = readSessionToken(getCookie(c, SESSION_COOKIE), config.PULSE_SESSION_SECRET);
+    const session = readSessionToken(getCookie(c, SESSION_COOKIE), config.PULSE_SESSION_SECRET, sessionEpoch.current());
     c.set("session", session);
     const path = c.req.path;
     const isPublic = path === "/api/health" || path === "/api/health/version" || path === "/api/auth/login" || path === "/api/auth/session";
@@ -76,7 +79,7 @@ export function createApp({ config, log, modules = [], version = "0.0.0" }: AppD
       return c.json({ error: "Incorrect password" }, 401);
     }
     loginLimiter.reset(ip);
-    const { token, payload } = createSessionToken(config.PULSE_SESSION_SECRET);
+    const { token, payload } = createSessionToken(config.PULSE_SESSION_SECRET, sessionEpoch.current());
     setCookie(c, SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: "Lax",
@@ -88,7 +91,9 @@ export function createApp({ config, log, modules = [], version = "0.0.0" }: AppD
     return c.json(body);
   });
 
+  // Needs a valid session and CSRF token like every other write. Bumps the epoch, so every device is signed out, not just this browser.
   app.post("/api/auth/logout", (c) => {
+    sessionEpoch.revokeAll();
     deleteCookie(c, SESSION_COOKIE, { path: "/" });
     return c.json({ ok: true });
   });

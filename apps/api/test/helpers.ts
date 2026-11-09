@@ -1,5 +1,6 @@
 import { hashPassword } from "../src/auth/password.js";
 import { createApp } from "../src/app.js";
+import { dbSessionEpoch } from "../src/auth/epoch.js";
 import { loadConfig } from "../src/config.js";
 import { createLogger } from "../src/logger.js";
 
@@ -102,7 +103,7 @@ export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Da
   const app0 = { service: updateService, watchtowerUrl: config.WATCHTOWER_URL, token: config.WATCHTOWER_TOKEN, backup: () => { const f = runBackup(handle.sqlite, config.DATA_DIR, opts.clock?.()); backupCalls.push(f); return f; }, fetchFn };
   const proposals = createProposalsModule({ db: handle.db, connect: fake.connect, getWriter: writer.factory, writesEnabled: opts.writes ?? false, app: app0, log, now: opts.clock });
   const history = createHistoryModule({ db: handle.db, connect: opts.historyConnect ?? fake.connect, days: config.PULSE_HISTORY_DAYS, log, now: opts.clock, sleep: opts.historySleep ?? (async () => undefined), busy: opts.historyBusy ?? (() => false), rateBaseMs: opts.historyRate?.baseMs, ratePauseMs: opts.historyRate?.pauseMs });
-  const app = createApp({ config, log, modules: [mod.module, history.module, updateModule, createRacesModule({ db: handle.db, now: opts.clock }), createZonesModule({ db: handle.db, now: opts.clock }), createFitnessModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
+  const app = createApp({ config, log, sessionEpoch: dbSessionEpoch(handle.db), modules: [mod.module, history.module, updateModule, createRacesModule({ db: handle.db, now: opts.clock }), createZonesModule({ db: handle.db, now: opts.clock }), createFitnessModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
   const login = await req(app, "/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
   const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const { csrfToken } = (await login.json()) as { csrfToken: string };

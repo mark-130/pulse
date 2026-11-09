@@ -1,4 +1,12 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createApp } from "../src/app.js";
+import { dbSessionEpoch } from "../src/auth/epoch.js";
+import { loadConfig } from "../src/config.js";
+import { openDb } from "../src/db/index.js";
+import { createLogger } from "../src/logger.js";
 import { hashPassword, verifyPassword } from "../src/auth/password.js";
 import { RateLimiter } from "../src/auth/rate-limit.js";
 import { createSessionToken, readSessionToken } from "../src/auth/session.js";
@@ -15,12 +23,12 @@ describe("password", () => {
 
 describe("session token", () => {
   it("round trips, rejects tampering and expiry", () => {
-    const { token, payload } = createSessionToken("k".repeat(32), 1000);
-    expect(readSessionToken(token, "k".repeat(32), 2000)?.csrf).toBe(payload.csrf);
-    expect(readSessionToken(token, "x".repeat(32), 2000)).toBeNull();
-    expect(readSessionToken(`${token}a`, "k".repeat(32), 2000)).toBeNull();
-    expect(readSessionToken(token, "k".repeat(32), payload.exp + 1)).toBeNull();
-    expect(readSessionToken(undefined, "k".repeat(32))).toBeNull();
+    const { token, payload } = createSessionToken("k".repeat(32), 0, 1000);
+    expect(readSessionToken(token, "k".repeat(32), 0, 2000)?.csrf).toBe(payload.csrf);
+    expect(readSessionToken(token, "x".repeat(32), 0, 2000)).toBeNull();
+    expect(readSessionToken(`${token}a`, "k".repeat(32), 0, 2000)).toBeNull();
+    expect(readSessionToken(token, "k".repeat(32), 0, payload.exp + 1)).toBeNull();
+    expect(readSessionToken(undefined, "k".repeat(32), 0)).toBeNull();
   });
 });
 
@@ -96,8 +104,9 @@ describe("api", () => {
     const withCsrf = await req(app, "/api/auth/logout", { method: "POST", headers: { cookie: cookieHeader, "x-csrf-token": csrfToken } });
     expect(withCsrf.status).toBe(200);
 
+    // The old cookie value no longer works: logout revokes it on the server (D56), not only in the browser.
     const session = await req(app, "/api/auth/session", { headers: { cookie: cookieHeader } });
-    expect(await session.json()).toMatchObject({ authenticated: true });
+    expect(await session.json()).toMatchObject({ authenticated: false });
   });
 
   it("rate limits login to 5 attempts per IP and ignores forwarded headers", async () => {
@@ -133,3 +142,77 @@ describe("cookie Secure flag", () => {
   });
 });
 
+
+describe("server side session revocation (D56)", () => {
+  async function setup(dataDir?: string) {
+    const dir = dataDir ?? mkdtempSync(join(tmpdir(), "pulse-epoch-"));
+    const config = loadConfig({ NODE_ENV: "test", PULSE_BASE_URL: "http://192.168.0.10:8210", PULSE_PASSWORD_HASH: await hashPassword("pw"), PULSE_SESSION_SECRET: "s".repeat(40), PULSE_SECRET_KEY: "ab".repeat(32), GARMIN_MCP_URL: "http://garmin-mcp:8000/mcp" });
+    const handle = openDb(dir);
+    const app = createApp({ config, log: createLogger("silent"), sessionEpoch: dbSessionEpoch(handle.db) });
+    return { dir, handle, app, config };
+  }
+  async function login(app: Awaited<ReturnType<typeof setup>>["app"]) {
+    const res = await req(app, "/api/auth/login", { method: "POST", headers: json, body: JSON.stringify({ password: "pw" }) });
+    const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const { csrfToken } = (await res.json()) as { csrfToken: string };
+    return { cookie, csrfToken };
+  }
+  const session = async (app: Awaited<ReturnType<typeof setup>>["app"], cookie: string) => (await req(app, "/api/auth/session", { headers: { cookie } })).json() as Promise<{ authenticated: boolean }>;
+
+  it("logout revokes every session on every device, including a copied cookie", async () => {
+    const { app } = await setup();
+    const phone = await login(app);
+    const laptop = await login(app);
+    expect((await session(app, phone.cookie)).authenticated).toBe(true);
+    expect((await session(app, laptop.cookie)).authenticated).toBe(true);
+    const out = await req(app, "/api/auth/logout", { method: "POST", headers: { cookie: phone.cookie, "x-csrf-token": phone.csrfToken } });
+    expect(out.status).toBe(200);
+    // The cookie the browser deleted is gone, but the copied value must also stop working.
+    expect((await session(app, phone.cookie)).authenticated).toBe(false);
+    expect((await session(app, laptop.cookie)).authenticated).toBe(false);
+    expect((await req(app, "/api/anything", { headers: { cookie: laptop.cookie } })).status).toBe(401);
+  });
+
+  it("signing in again after a logout works, and CSRF is still enforced", async () => {
+    const { app } = await setup();
+    const first = await login(app);
+    await req(app, "/api/auth/logout", { method: "POST", headers: { cookie: first.cookie, "x-csrf-token": first.csrfToken } });
+    const second = await login(app);
+    expect((await session(app, second.cookie)).authenticated).toBe(true);
+    expect((await req(app, "/api/auth/logout", { method: "POST", headers: { cookie: second.cookie } })).status).toBe(403);
+    expect((await session(app, second.cookie)).authenticated).toBe(true);
+  });
+
+  it("logout needs a session and a CSRF token, so nobody else can sign the owner out", async () => {
+    const { app } = await setup();
+    const me = await login(app);
+    expect((await req(app, "/api/auth/logout", { method: "POST" })).status).toBe(401);
+    expect((await session(app, me.cookie)).authenticated).toBe(true);
+  });
+
+  it("the epoch survives a restart, so a revoked session stays revoked", async () => {
+    const a = await setup();
+    const me = await login(a.app);
+    await req(a.app, "/api/auth/logout", { method: "POST", headers: { cookie: me.cookie, "x-csrf-token": me.csrfToken } });
+    a.handle.sqlite.close();
+    const b = await setup(a.dir);
+    expect((await session(b.app, me.cookie)).authenticated).toBe(false);
+    const again = await login(b.app);
+    expect((await session(b.app, again.cookie)).authenticated).toBe(true);
+  });
+
+  it("rejects a token from before the epoch existed (no v), so every device signs in once after the deploy", async () => {
+    const { app, config } = await setup();
+    const { createHmac, randomBytes } = await import("node:crypto");
+    const body = Buffer.from(JSON.stringify({ csrf: randomBytes(24).toString("base64url"), exp: Date.now() + 1e9 })).toString("base64url");
+    const token = `${body}.${createHmac("sha256", config.PULSE_SESSION_SECRET).update(body).digest("base64url")}`;
+    expect((await session(app, `pulse_session=${token}`)).authenticated).toBe(false);
+  });
+
+  it("a token from a newer or older epoch is not accepted", () => {
+    const { token } = createSessionToken("k".repeat(32), 3, 1000);
+    expect(readSessionToken(token, "k".repeat(32), 3, 2000)).not.toBeNull();
+    expect(readSessionToken(token, "k".repeat(32), 4, 2000)).toBeNull();
+    expect(readSessionToken(token, "k".repeat(32), 2, 2000)).toBeNull();
+  });
+});
