@@ -38,7 +38,7 @@ export function ConfirmDialog({ proposal, writesEnabled, probeRecorded, onClose,
 
           {pending && !isApp && !writesEnabled && (
             <p className="mb-3 flex items-start gap-2 rounded-2xl border border-border-strong bg-surface-2 p-3 text-[15px] font-semibold">
-              <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--verdict-easy)]" />
+              <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--state-warn)]" />
               <span>{DRY_RUN_TEXT}</span>
             </p>
           )}
@@ -60,7 +60,7 @@ export function ConfirmDialog({ proposal, writesEnabled, probeRecorded, onClose,
           </dl>
           {pending && isApp && (
             <div className="mt-3 flex items-start gap-2 rounded-2xl border border-border-strong bg-surface-2 p-3 text-[15px]">
-              <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--verdict-easy)]" />
+              <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--state-warn)]" />
               <div className="space-y-1">
                 <p className="font-semibold">{UPDATE_RESTART_TEXT}</p>
                 <p className="t-secondary">A backup of the database is taken first.</p>
@@ -72,7 +72,7 @@ export function ConfirmDialog({ proposal, writesEnabled, probeRecorded, onClose,
           {p.createdBy === "ai" && p.rationale && <p className="t-secondary mt-1 [overflow-wrap:anywhere]">Reason given: {p.rationale}</p>}
 
           {p.status === "stale" && (
-            <div role="alert" className="mt-3 rounded-2xl border border-[color:var(--verdict-easy)] p-3 text-[15px]">
+            <div role="alert" className="mt-3 rounded-2xl border border-[color:var(--state-warn)] p-3 text-[15px]">
               <p className="font-semibold">The workout changed in Garmin since this was proposed. Nothing was sent.</p>
               <p className="t-secondary mt-1 [overflow-wrap:anywhere]">
                 {p.result?.live ? `Garmin now has ${p.result.live.name} on ${formatDayDate(p.result.live.date)}.` : "It is no longer on the Garmin schedule."} Make the change again from Week.

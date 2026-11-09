@@ -5,7 +5,7 @@ const tones = {
   neutral: "bg-[var(--chip-neutral-bg)] text-[color:var(--chip-neutral-fg)]",
   priorityA: "bg-accent text-accent-foreground",
   priorityB: "bg-[var(--chip-b-bg)] text-[color:var(--chip-b-fg)]",
-  soft: "bg-[var(--chip-taper-bg)] text-[color:var(--chip-taper-fg)]",
+  soft: "bg-[var(--chip-soft-bg)] text-[color:var(--chip-soft-fg)]",
 } as const;
 
 export function Chip({ tone = "neutral", children }: { tone?: keyof typeof tones; children: ReactNode }) {

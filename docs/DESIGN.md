@@ -23,12 +23,13 @@ Source of truth for the look of NGtive Split (code name pulse). Tokens live in a
 ## Light tokens
 Same layout. bg #F4F8F8, surface #FFFFFF, border rgba(10,17,19,0.08), text #0A1113, muted #4B6161, accent #0F766E, on-accent #FFFFFF. The orb is unchanged with a softer glow. Chip, briefing and proposal tints use the darker accent and violet so text keeps at least 4.5:1 contrast. Contrast is checked when tokens change.
 
-## Verdict states
-Always icon plus text, never colour alone.
-- Go as planned: accent, check icon.
-- Go but easier: amber, #FBBF24 dark, #B45309 light.
-- Swap for recovery: orange, #FB923C dark, #C2410C light.
-- Rest: rose, #FB7185 dark, #BE123C light.
+## Readings states
+Always icon plus text, never colour alone. The label describes the readings and never says what to do (D48).
+- Readings: strong: accent, check icon.
+- Readings: mixed: amber, #FBBF24 dark, #B45309 light, minus icon.
+- Readings: low: orange, #FB923C dark, #C2410C light, down arrow icon.
+- Readings: not enough data: muted, question mark icon.
+- The warning colours are tokens named --state-good, --state-warn, --state-low and --state-bad (rose, #FB7185 dark, #BE123C light, used for destructive changes). The soft chip is --chip-soft-*.
 
 ## Type
 Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self-hosted through @fontsource, no Google Fonts or CDN requests, so the PWA works offline.
@@ -53,7 +54,7 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - Orb hero: 96px orb, greeting "Morning, Mark" (by time of day), date line.
 - Briefing bubble: sparkle, "Briefing", time, AI chip, text 15 with 1.6 line height.
 - Prompt chips under the briefing: three suggested questions, wrapping to rows.
-- Verdict card (built in 4a): an outlined verdict pill with icon and text (check for Go as planned, down arrow for Go but easier, refresh arrows for Swap for recovery, bed for Rest, question mark for No verdict, coloured by the verdict tokens), Garmin's own readiness score big over 100 with its date, the gradient gauge with a marker at that score, the top 3 reasons (numbers and dates) with the rest behind "All reasons", the illness and injury note, Garmin sync time. The verdict is code, so the card carries no AI chip.
+- Readings card (4a, reworked in D48): the overline "Today's readings", an outlined pill with icon and text ("Readings: strong", "Readings: mixed", "Readings: low" or "Readings: not enough data"), Garmin's own readiness score large beside its gauge, then every reading as a short factual line (figure, date, direction against baseline or recent average, in a fixed order) with no advice wording, the illness note and the sync time. No disclosure: all lines show.
 - Session row: icon tile, overline, title, estimated duration, source, View button.
 - Race card: name, date and start time in the race's own time zone, countdown, a seven day row of circles (today outlined, race day filled accent), chips for priority, distance and goal, then a line for the following race. No taper chip or status line (D42).
 - Metric tiles, two columns: label, value, 4px gradient bar, status line.
@@ -122,7 +123,7 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - Every AI-written block carries the sparkle icon and an "AI" chip.
 
 ## Today order
-Orb hero, briefing, prompt chips, verdict, session, race, metrics, proposals. Module widgets register a card (1x1 or 2x1) into the grid after these. Reordering is a later feature.
+Orb hero, briefing, prompt chips, readings, session, race, metrics, proposals. Module widgets register a card (1x1 or 2x1) into the grid after these. Reordering is a later feature.
 
 ## Brand
 - Split-bar mark: a short dim bar above a longer gradient bar (a negative split).

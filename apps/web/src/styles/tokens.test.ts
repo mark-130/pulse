@@ -26,9 +26,9 @@ describe("tokens.css matches the exported palette", () => {
   it("light core colours", () => {
     for (const hex of Object.values(BRAND_COLORS.light)) expect(lightBlock).toContain(hex.toLowerCase());
   });
-  it("verdict colours", () => {
-    for (const hex of Object.values(BRAND_COLORS.verdict.dark)) expect(darkBlock).toContain(hex.toLowerCase());
-    for (const hex of Object.values(BRAND_COLORS.verdict.light)) expect(lightBlock).toContain(hex.toLowerCase());
+  it("state colours", () => {
+    for (const hex of Object.values(BRAND_COLORS.state.dark)) expect(darkBlock).toContain(hex.toLowerCase());
+    for (const hex of Object.values(BRAND_COLORS.state.light)) expect(lightBlock).toContain(hex.toLowerCase());
   });
   it("orb and gradient values from DESIGN.md", () => {
     expect(darkBlock).toContain("radial-gradient(circle at 32% 28%, #c9fff5 0%, #2dd4bf 26%, #3b82f6 60%, #7c3aed 100%)");

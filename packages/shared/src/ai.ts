@@ -4,15 +4,15 @@ export const AI_OFF_TEXT = "AI is off";
 export const AI_BUDGET_TEXT = "AI cap reached for this month";
 export const HEALTH_NOTE = "If you are ill, in pain or injured, rest and see a doctor or physio. This is not medical advice.";
 
-export const verdictStateSchema = z.enum(["go", "easier", "swap", "rest", "unknown"]);
-export type VerdictState = z.infer<typeof verdictStateSchema>;
+export const readingsStateSchema = z.enum(["strong", "mixed", "low", "unknown"]);
+export type ReadingsState = z.infer<typeof readingsStateSchema>;
 
-export const VERDICT_LABELS: Record<VerdictState, string> = {
-  go: "Go as planned",
-  easier: "Go but easier",
-  swap: "Swap for recovery",
-  rest: "Rest",
-  unknown: "No verdict",
+/** Neutral labels for the day's readings. They describe the readings, never what to do (D48). */
+export const READINGS_LABELS: Record<ReadingsState, string> = {
+  strong: "Readings: strong",
+  mixed: "Readings: mixed",
+  low: "Readings: low",
+  unknown: "Readings: not enough data",
 };
 
 export const signalSchema = z.object({
@@ -23,18 +23,19 @@ export const signalSchema = z.object({
 });
 export type Signal = z.infer<typeof signalSchema>;
 
-/** Computed in code from docs/TRAINING.md. The AI never decides it. */
-export const verdictSchema = z.object({
-  state: verdictStateSchema,
+/** Computed in code from docs/TRAINING.md. The AI never receives the label, only the readings. */
+export const readingsSummarySchema = z.object({
+  state: readingsStateSchema,
   label: z.string(),
-  /** Reasons that cite numbers and dates, most important first. */
-  reasons: z.array(z.string()),
+  /** One factual line per reading: the figure, its date and the direction against its baseline or recent average. */
+  lines: z.array(z.string()),
   signals: z.array(signalSchema),
   points: z.number(),
-  plannedWorkout: z.string().nullable(),
+  /** The workout Garmin has scheduled today, if any. */
+  scheduledToday: z.string().nullable(),
   healthNote: z.string(),
 });
-export type Verdict = z.infer<typeof verdictSchema>;
+export type ReadingsSummary = z.infer<typeof readingsSummarySchema>;
 
 /** Why an AI card could not be written. A plain reason, no secrets, at most a short sanitised line of provider text. */
 export const aiFailureSchema = z.object({ reason: z.string(), label: z.string(), detail: z.string().nullable(), at: z.string() });

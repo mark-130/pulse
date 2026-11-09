@@ -4,7 +4,7 @@ import type {
   ActivityItem,
   Readiness,
   TodayResponse,
-  Verdict,
+  ReadingsSummary,
   TrendsResponse,
   WeekResponse,
   WorkoutItem,
@@ -13,7 +13,8 @@ import { addDays, londonDate, weekStart } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { activity, garminSnapshot, vo2maxPoint, workout } from "../../db/schema.js";
 import { lastGarminOk } from "./freshness.js";
-import { computeVerdict } from "../ai/verdict.js";
+import { loadReadings, type Point } from "../ai/readings.js";
+import { computeReadingsSummary, type Avg } from "../ai/readings-summary.js";
 import { countPending } from "../proposals/engine.js";
 import { getRaceView } from "../races/data.js";
 import * as up from "./upstream.js";
@@ -72,11 +73,30 @@ function pickReadiness(db: Db, today: string): Readiness | null {
   };
 }
 
-function buildVerdict(db: Db, today: string, readiness: Readiness | null, metrics: TodayResponse["metrics"]): Verdict {
+/** The mean of the earlier days (up to 7 before today) for one reading, or null with no days. */
+function recentAverage(points: Point[], today: string): Avg | null {
+  const from = addDays(today, -7);
+  const prior = points.filter((p) => p.date < today && p.date >= from);
+  return prior.length ? { avg: prior.reduce((n, p) => n + p.value, 0) / prior.length, days: prior.length } : null;
+}
+
+/** Body battery highest per day, from the daily stats snapshots. */
+function bodyBatteryPeaks(db: Db, today: string): Point[] {
+  const rows = db.select().from(garminSnapshot).where(and(eq(garminSnapshot.kind, "stats"), gte(garminSnapshot.date, addDays(today, -7)), lte(garminSnapshot.date, today))).all();
+  const out: Point[] = [];
+  for (const r of rows) {
+    const p = up.statsSchema.safeParse(r.payload);
+    if (p.success && p.data.body_battery_highest != null) out.push({ date: r.date, value: p.data.body_battery_highest });
+  }
+  return out;
+}
+
+function buildReadings(db: Db, today: string, readiness: Readiness | null, metrics: TodayResponse["metrics"]): ReadingsSummary {
   const load = latestSnapshot(db, "training_load_trend", up.trainingLoadTrendSchema, today);
   const last = load?.data.trend[load.data.trend.length - 1];
   const planned = db.select().from(workout).where(and(eq(workout.date, today), eq(workout.completed, false))).orderBy(asc(workout.name)).get();
-  return computeVerdict({
+  const history = loadReadings(db, today);
+  return computeReadingsSummary({
     today,
     readiness: readiness ? { date: readiness.date, score: readiness.score, level: readiness.level } : null,
     sleep: metrics.sleep ? { date: metrics.sleep.date, score: metrics.sleep.score } : null,
@@ -85,6 +105,7 @@ function buildVerdict(db: Db, today: string, readiness: Readiness | null, metric
     bodyBattery: metrics.bodyBattery,
     load: last ? { date: last.date, atl: last.atl ?? null, ctl: last.ctl ?? null, acwr: last.acwr ?? null } : null,
     planned: planned ? { name: planned.name, durationS: planned.durationS } : null,
+    averages: { readiness: recentAverage(history.readiness, today), sleep: recentAverage(history.sleep, today), bodyBattery: recentAverage(bodyBatteryPeaks(db, today), today) },
   });
 }
 
@@ -134,7 +155,7 @@ export function getToday(db: Db, now: Date): TodayResponse {
     date: today,
     syncedAt: lastGarminOk(db),
     proposals: { pending: countPending(db, now) },
-    verdict: buildVerdict(db, today, readiness, metrics),
+    readings: buildReadings(db, today, readiness, metrics),
     readiness,
     session: {
       today: db.select().from(workout).where(eq(workout.date, today)).all().map(toWorkout),

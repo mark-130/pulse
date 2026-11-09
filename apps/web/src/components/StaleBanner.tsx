@@ -32,9 +32,9 @@ export function StaleBanner() {
   if (!banner) return null;
   const Icon = banner.tone === "offline" ? CloudOff : TriangleAlert;
   return (
-    <div role="status" className="mb-4 min-w-0 max-w-full rounded-3xl border border-[color:var(--verdict-easy)] bg-surface px-4 py-3">
+    <div role="status" className="mb-4 min-w-0 max-w-full rounded-3xl border border-[color:var(--state-warn)] bg-surface px-4 py-3">
       <div className="flex min-w-0 items-start gap-3">
-        <Icon aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--verdict-easy)]" />
+        <Icon aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--state-warn)]" />
         <div className="min-w-0 flex-1 text-[15px] [overflow-wrap:anywhere]">
           {banner.headline && <p className="font-semibold">{banner.headline}</p>}
           <p>{banner.text}</p>

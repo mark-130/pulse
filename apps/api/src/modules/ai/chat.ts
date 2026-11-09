@@ -6,7 +6,7 @@ import type { LlmBlock, LlmMessage, LlmUserBlock } from "./llm.js";
 import { isProposalTool, PROPOSAL_TOOLS, proposalsOn, runProposalTool, systemFor } from "./proposal-tools.js";
 import { callModel, type AiRuntime } from "./runtime.js";
 import { ASK_TOOLS, runTool } from "./tools.js";
-import { HEALTH_ADVICE, mentionsHealthConcern } from "./verdict.js";
+import { HEALTH_ADVICE, mentionsHealthConcern } from "./readings-summary.js";
 import { aiGate } from "./usage.js";
 import { COACH_NOTE, mentionsTrainingAdvice } from "./coaching.js";
 
@@ -54,7 +54,7 @@ export interface AskOutcome {
  */
 export async function ask(rt: AiRuntime, threadId: string, userText: string): Promise<{ thread: ChatThread["messages"]; outcome: AskOutcome }> {
   const outcome: AskOutcome = { toolCalls: [], modelCalls: 0 };
-  // Illness, pain and injury always get the same advice, in code. The verdict and the model are not consulted.
+  // Illness, pain and injury always get the same advice, in code. The readings label and the model are not consulted.
   if (mentionsHealthConcern(userText)) {
     store(rt, threadId, "user", userText);
     store(rt, threadId, "assistant", HEALTH_ADVICE, { tools: [], source: "app" });

@@ -10,7 +10,7 @@ import { lastFailure, noteFailure, toInfo } from "./failure.js";
 import type { AiFailure } from "./llm.js";
 import { AiUnavailable, type AiRuntime } from "./runtime.js";
 import { aiGate, aiStatus } from "./usage.js";
-import { mentionsHealthConcern } from "./verdict.js";
+import { mentionsHealthConcern } from "./readings-summary.js";
 
 const RETRY_AFTER_FAILURE_MS = 10 * 60_000;
 

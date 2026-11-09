@@ -57,9 +57,9 @@ export function ZonesBody({ z, onEdit, onConfirm, confirming }: { z: ZonesRespon
   return (
     <>
       {z.warning && (
-        <div role="alert" className="mb-3 rounded-2xl border border-[color:var(--verdict-easy)] p-3">
+        <div role="alert" className="mb-3 rounded-2xl border border-[color:var(--state-warn)] p-3">
           <p className="flex items-start gap-2 text-[15px] font-semibold [overflow-wrap:anywhere]">
-            <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--verdict-easy)]" />
+            <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--state-warn)]" />
             <span>{z.warning.text}</span>
           </p>
           <Button className="mt-3 w-full sm:w-auto" disabled={confirming} onClick={onConfirm}>{confirming ? "Saving" : "Kotcha is up to date"}</Button>

@@ -1,10 +1,10 @@
 import { sevenDayRow, type DayKind } from "@/lib/races";
 import { SportIcon } from "@/components/SportIcon";
 import { KindNote } from "@/components/KindNote";
-import { Activity, ArrowDown, Battery, BedDouble, Check, CircleHelp, Heart, Moon, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
+import { Activity, ArrowDown, Battery, Check, CircleHelp, Heart, Minus, Moon, Sparkles, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { AI_BUDGET_TEXT, AI_OFF_TEXT, type RaceItem, type TodayResponse, type Verdict } from "@pulse/shared";
+import { AI_BUDGET_TEXT, AI_OFF_TEXT, type RaceItem, type ReadingsSummary, type TodayResponse } from "@pulse/shared";
 import { AiChip, Chip, PriorityChip } from "@/components/Chip";
 import { Orb } from "@/components/Orb";
 import { Button } from "@/components/ui";
@@ -23,7 +23,7 @@ const prompts = ["How did I sleep?", "What is my next race?", "What do my readin
 
 function Gauge({ value }: { value: number | null }) {
   return (
-    <div className="relative h-[10px] rounded-full" style={{ background: "linear-gradient(90deg, var(--verdict-rest), var(--verdict-swap), var(--verdict-easy), var(--verdict-go))" }}>
+    <div className="relative h-[10px] rounded-full" style={{ background: "linear-gradient(90deg, var(--state-bad), var(--state-low), var(--state-warn), var(--state-good))" }}>
       {value !== null && (
         <span className="absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[color:var(--bg)] bg-foreground" style={{ left: `${Math.max(0, Math.min(100, value))}%` }} />
       )}
@@ -73,24 +73,25 @@ function Skeleton({ className = "" }: { className?: string }) {
   return <div aria-hidden="true" className={`rounded-3xl bg-surface-2 ${className}`} />;
 }
 
-const verdictStyle: Record<Verdict["state"], { icon: typeof Check; color: string }> = {
-  go: { icon: Check, color: "var(--verdict-go)" },
-  easier: { icon: ArrowDown, color: "var(--verdict-easy)" },
-  swap: { icon: RefreshCw, color: "var(--verdict-swap)" },
-  rest: { icon: BedDouble, color: "var(--verdict-rest)" },
+const readingsStyle: Record<ReadingsSummary["state"], { icon: typeof Check; color: string }> = {
+  strong: { icon: Check, color: "var(--state-good)" },
+  mixed: { icon: Minus, color: "var(--state-warn)" },
+  low: { icon: ArrowDown, color: "var(--state-low)" },
   unknown: { icon: CircleHelp, color: "var(--muted)" },
 };
 
-/** The readiness verdict is worked out in code from docs/TRAINING.md. Garmin's own score stays visible beside it. */
-function VerdictCard({ data }: { data: TodayResponse }) {
+/**
+ * Today's readings, worked out in code from docs/TRAINING.md (D48). One neutral label, then each reading as a fact: the
+ * figure, its date and the direction against its baseline or recent average. Garmin's own score stays visible beside it.
+ * It is not advice and it never says what to do.
+ */
+export function ReadingsCard({ data }: { data: TodayResponse }) {
   const r = data.readiness;
-  const v = data.verdict;
-  const { icon: Icon, color } = verdictStyle[v.state];
-  const top = v.reasons.slice(0, 3);
-  const rest = v.reasons.slice(3);
+  const v = data.readings;
+  const { icon: Icon, color } = readingsStyle[v.state];
   return (
-    <section className="card md:col-span-2" aria-labelledby="verdict-title">
-      <h2 id="verdict-title" className="t-overline mb-2">Today's verdict</h2>
+    <section className="card md:col-span-2" aria-labelledby="readings-title">
+      <h2 id="readings-title" className="t-overline mb-2">Today's readings</h2>
       <p className="inline-flex min-h-8 items-center gap-2 rounded-full border px-3 text-[15px] font-semibold" style={{ borderColor: color, color }}>
         <Icon aria-hidden className="size-4" />
         {v.label}
@@ -101,15 +102,9 @@ function VerdictCard({ data }: { data: TodayResponse }) {
       </p>
       <p className="t-label">{r ? `Garmin's own readiness score${r.level ? `, ${humanise(r.level).toLowerCase()}` : ""}, ${formatDate(r.date)}` : "No Garmin readiness score yet"}</p>
       <div className="my-3"><Gauge value={r?.score ?? null} /></div>
-      <ul className="space-y-1 text-[15px]">
-        {top.map((t) => <li key={t} className="[overflow-wrap:anywhere]">{t}</li>)}
+      <ul className="space-y-1.5 text-[15px]">
+        {v.lines.map((t) => <li key={t} className="[overflow-wrap:anywhere]">{t}</li>)}
       </ul>
-      {rest.length > 0 && (
-        <details>
-          <summary className="t-secondary flex min-h-11 cursor-pointer items-center">All reasons ({v.reasons.length})</summary>
-          <ul className="space-y-1 pb-2 text-[15px]">{rest.map((t) => <li key={t} className="[overflow-wrap:anywhere]">{t}</li>)}</ul>
-        </details>
-      )}
       <p className="t-label mt-2">{v.healthNote}</p>
       <Synced at={data.syncedAt} />
     </section>
@@ -181,7 +176,7 @@ function Race({ data }: { data: TodayResponse }) {
             <Chip>{r.goalTimeSeconds !== null ? `Goal ${formatClock(r.goalTimeSeconds)}` : "No goal time"}</Chip>
             {!r.isRace && <Chip>Not flagged as a race</Chip>}
           </div>
-          {r.flags.some((f) => f.kind === "unverified_time") && <p className="t-secondary mt-1 flex items-start gap-1"><TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-[color:var(--verdict-easy)]" />Start time unverified.</p>}
+          {r.flags.some((f) => f.kind === "unverified_time") && <p className="t-secondary mt-1 flex items-start gap-1"><TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-[color:var(--state-warn)]" />Start time unverified.</p>}
         </>
       ) : (
         <>
@@ -266,7 +261,7 @@ export function Today() {
       )}
       {data && (
         <>
-          <VerdictCard data={data} />
+          <ReadingsCard data={data} />
           <Session data={data} />
           <Race data={data} />
           <Metrics data={data} />

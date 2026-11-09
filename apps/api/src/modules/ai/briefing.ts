@@ -42,7 +42,7 @@ export function briefingContext(rt: AiRuntime) {
       today: t.date,
       greeting: greetingWord(now),
       staleGroups,
-      readings: t.verdict.signals.map((x) => x.text),
+      readings: t.readings.signals.map((x) => x.text),
       garminReadiness: t.readiness,
       todaySessions: t.session.today.map((w) => ({ name: w.name, durationMin: w.durationS === null ? null : Math.round(w.durationS / 60), completed: w.completed })),
       nextSession: t.session.next && { name: t.session.next.name, date: t.session.next.date, durationMin: t.session.next.durationS === null ? null : Math.round(t.session.next.durationS / 60) },

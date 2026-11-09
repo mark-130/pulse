@@ -20,8 +20,8 @@ Status: signed off by Mark after the dry-run checks all passed. The live probe (
 
 ## Phase 4: AI (split in two, D36)
 ### Phase 4a: AI foundation
-Scope: Anthropic client (API only), usage logging and monthly cap with a hard stop, readiness verdict in code, daily briefing (06:30 job plus on-demand), Ask with read tools only, orb thinking state, AI off state, `pnpm eval` for manual runs.
-Acceptance: with no key every AI surface says "AI is off" and the rest of the app is unchanged. The verdict fixtures pass. The cap stops AI at the monthly limit and nothing else changes. The tool loop is capped at 8. The key never appears in logs, responses or prompts. No ntfy yet.
+Scope: Anthropic client (API only), usage logging and monthly cap with a hard stop, readings summary in code (first built as a verdict, reworked in D48), daily briefing (06:30 job plus on-demand), Ask with read tools only, orb thinking state, AI off state, `pnpm eval` for manual runs.
+Acceptance: with no key every AI surface says "AI is off" and the rest of the app is unchanged. The readings summary fixtures pass. The cap stops AI at the monthly limit and nothing else changes. The tool loop is capped at 8. The key never appears in logs, responses or prompts. No ntfy yet.
 ### Phase 4b: built, waiting for Mark's testing (D42, D43)
 Scope as built: race lead-up on the race detail screen (facts from the cache, no AI), weekly review (Sunday 19:00 and on demand, cached per week, on Week), post-run debrief (after the sync that brings a run in, cached per activity, on the activity), and propose_reschedule and propose_unschedule through the engine only, for dates only, behind AI_PROPOSALS and PULSE_GARMIN_WRITES, both default off. Ruled by D42: the app and the AI report what is in Garmin and never give training advice.
 Deferred: briefing by ntfy (ntfy is off), optional forecast.
@@ -34,7 +34,7 @@ Built: the Today cards (Kotcha zones copy with Garmin's zones and the change war
 Built: the Fitness tab on Trends (race predictions with the daily snapshot table, VO2 max, endurance score, hill score, lactate threshold, running personal records with a New tag), the sync kinds, the race lead-up prediction line and the get_fitness_summary read tool. Race predictions cannot be backfilled, so the trend starts on the first stored day. Phase 4c (history import: older endurance, hill and lactate threshold, older VO2 max) is not built.
 
 ## Phase 5: Google Calendar, scope to be agreed
-Scope and acceptance to be agreed before this phase starts. Candidates: busy time for the readiness verdict, mirrored planned workouts on a "Pulse Training" calendar (proposals only). See docs/INTEGRATIONS.md.
+Scope and acceptance to be agreed before this phase starts. Candidates: busy time for the readings summary, mirrored planned workouts on a "Pulse Training" calendar (proposals only). See docs/INTEGRATIONS.md.
 
 ## Phase 6: Home Assistant
 Scope: read-only states and cards first, then proposals for allowlisted services.

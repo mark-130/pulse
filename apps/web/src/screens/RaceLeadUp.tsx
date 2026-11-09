@@ -47,7 +47,7 @@ export function FlagsView({ leadUp }: { leadUp: LeadUp }) {
       <ul className="space-y-2">
         {items.map((i) => (
           <li key={i.key} className="flex items-start gap-2 text-[15px] [overflow-wrap:anywhere]">
-            <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-[color:var(--verdict-easy)]" />
+            <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-[color:var(--state-warn)]" />
             <span>{i.text}</span>
           </li>
         ))}

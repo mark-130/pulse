@@ -51,7 +51,7 @@ function Flags({ race }: { race: RaceView }) {
     <ul className="mt-3 space-y-1">
       {race.flags.map((f) => (
         <li key={f.kind} className="flex items-start gap-2 text-[13px] [overflow-wrap:anywhere]">
-          <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-[color:var(--verdict-easy)]" />
+          <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-[color:var(--state-warn)]" />
           <span>{f.text}</span>
         </li>
       ))}
@@ -88,9 +88,9 @@ function RaceCard({ race, save, busy }: { race: RaceView; save: (r: RaceView, m:
 function Warning({ w, races, save, busy }: { w: RaceWarning; races: Map<string, RaceView>; save: (r: RaceView, m: RaceMetaInput) => void; busy: boolean }) {
   const involved = w.raceKeys.map((k) => races.get(k)).filter((r): r is RaceView => r !== undefined);
   return (
-    <section className={`card min-w-0 ${w.severity === "action" ? "!border-[color:var(--verdict-easy)]" : ""}`} aria-label="Warning">
+    <section className={`card min-w-0 ${w.severity === "action" ? "!border-[color:var(--state-warn)]" : ""}`} aria-label="Warning">
       <p className="flex items-start gap-2 text-[15px] [overflow-wrap:anywhere]">
-        <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--verdict-easy)]" />
+        <TriangleAlert aria-hidden className="mt-0.5 size-5 shrink-0 text-[color:var(--state-warn)]" />
         <span>{w.message}</span>
       </p>
       {w.needsChoice && w.kind === "cluster" && (

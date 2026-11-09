@@ -120,7 +120,7 @@ describe("race lead-up in the app", () => {
     capped.addUsage(5);
     expect((await capped.leadup()).leadUp.weeks.length).toBeGreaterThan(0);
     expect(llm.requests).toHaveLength(0);
-    expect(todayResponseSchema.parse(await (await capped.t.get("/api/today")).json()).verdict.state).not.toBe("unknown");
+    expect(todayResponseSchema.parse(await (await capped.t.get("/api/today")).json()).readings.state).not.toBe("unknown");
   });
 
   it("404 for an unknown race, and needs a session", async () => {

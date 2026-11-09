@@ -58,21 +58,22 @@ These came from the original specification and D30. In the app they exist only a
 - A race inside the recovery window of an earlier race gets a warning.
 - Fixtures from Mark's calendar on 07/11/2026 (tests only, never hard-code): Rhino 10K 14/11/2026 is 6 days after the 08/11 long run. Pierpont Plod half 14/03/2027 is 21 days before Brighton Marathon 04/04/2027. Scottish Half 15/08/2027 is 14 days before Sydney Marathon 29/08/2027. Expected: all three flagged.
 
-## Daily readiness verdict (built in Phase 4a, D35)
-- Computed in code (apps/api/src/modules/ai/verdict.ts). The AI never decides it and may only quote and explain it.
-- Inputs: Garmin training readiness, sleep score, HRV against baseline, resting heart rate against its 7 day average, body battery, recent load, today's planned workout. Busy time from calendars joins in Phase 5.
-- A measure dated before yesterday is too old and counts as missing. With fewer than 3 of the 6 measures the result is "No verdict" and says so.
-- Each measure is ok (0 points), caution (1) or poor (2). Defaults, editable in the code constants:
-  - Training readiness: 60 and over ok, 40 to 59 caution, under 40 poor.
-  - Sleep score: 70 and over ok, 50 to 69 caution, under 50 poor.
-  - HRV: at or above the baseline low ok. Below it by up to 10 percent caution, by more than 10 percent poor.
-  - Resting heart rate: up to 3 bpm over the 7 day average ok, 4 to 6 caution, 7 or more poor.
-  - Body battery (the day's highest): 70 and over ok, 40 to 69 caution, under 40 poor.
-  - Load, acute to chronic ratio: up to 1.3 ok, up to 1.5 caution, above 1.5 poor.
-- Output: Rest if 3 or more poor or 7 or more points. Swap for recovery if 2 or more poor or 4 or more points. Go but easier if 2 or more points or any poor. Otherwise Go as planned. A long or hard planned session (90 minutes or more, or a name with interval, tempo, threshold, repeat, hill, speed, fartlek, race or a pattern like 6x800) on a day of 3 or more points moves Go but easier to Swap for recovery.
-- Reasons cite the number and its date, worst first, then today's planned session. The note "If you are ill, in pain or injured, rest and see a doctor or physio. This is not medical advice." is always shown.
-- Illness, pain or injury: a question that mentions them gets a fixed reply to rest and see a doctor or physio, written in code, with no verdict and no model call.
-- The status is shown on Today as built and signed off in 4a. Open question for Mark (D42): its labels (Go but easier, Swap for recovery, Rest) read as a recommendation about training, which the ownership rule says the app should not make. It is left as it was, the AI no longer quotes or restates it (the AI gets the readings it is built from), and Mark decides whether it stays, is renamed to a readings summary, or goes. Garmin and the plan app keep the real workouts.
+## Daily readings summary (built in Phase 4a as a verdict, turned into a readings summary in D48)
+- Computed in code (apps/api/src/modules/ai/readings-summary.ts). It reports Garmin's readings and never says what to do. The AI is given the readings, never the label.
+- Output on Today: one neutral label, **Readings: strong**, **Readings: mixed** or **Readings: low** (or **Readings: not enough data**), then each reading as a short factual line: the figure, its date and the direction against its baseline or recent average. The lines are in a fixed order (Garmin readiness, HRV, sleep, resting heart rate, body battery, load, then what Garmin has scheduled today), not ranked.
+- Inputs and directions: Garmin training readiness against its 7 day average. HRV against its baseline range (above, within or below). Sleep score against its 7 day average. Resting heart rate against its 7 day average (bpm above or below). Body battery (the day's highest) against the 7 day average of daily highs. Load as the acute to chronic ratio (acute above, level with or below chronic). An average is quoted only from at least 3 earlier days of stored readings, otherwise just the figure and date. "In line" means within 5 percent of the average.
+- A reading dated before yesterday is too old and counts as missing. With fewer than 3 of the 6 readings the label is "Readings: not enough data" and says so.
+- Scoring is the original one, unchanged (D35). Each reading is scored 0 (in range), 1 (borderline) or 2 (outside) by these defaults, editable in the code constants:
+  - Training readiness: 60 and over 0, 40 to 59 one point, under 40 two.
+  - Sleep score: 70 and over 0, 50 to 69 one, under 50 two.
+  - HRV: at or above the baseline low 0. Below it by up to 10 percent one, by more than 10 percent two.
+  - Resting heart rate: up to 3 bpm over the 7 day average 0, 4 to 6 one, 7 or more two.
+  - Body battery (the day's highest): 70 and over 0, 40 to 69 one, under 40 two.
+  - Load, acute to chronic ratio: up to 1.3 0, up to 1.5 one, above 1.5 two.
+- Label from the points: two or more readings scored 2 points, or 4 or more points in total, gives **Readings: low** (this folds the two lowest outcomes of the original four, which always differed only in degree). Two or more points, or any single reading scored 2, gives **Readings: mixed**. Otherwise **Readings: strong**. A long or hard scheduled session (90 minutes or more, or a name with interval, tempo, threshold, repeat, hill, speed, fartlek, race or a pattern like 6x800) on a day of 3 or more points moves mixed to low. That last rule is kept only because the scoring is unchanged. It makes the label depend on the schedule, and it is flagged to Mark as an open question in D48.
+- The note "If you are ill, in pain or injured, rest and see a doctor or physio. This is not medical advice." is always shown under the card.
+- Illness, pain or injury: a question that mentions them gets the fixed safety reply to rest and see a doctor or physio, written in code, with no model call. Only its reference to the old label was reworded in D48 ("the readings label does not apply").
+- The label is a summary of readings. It is not advice and is not used to produce any recommendation (D42). Garmin and the plan app keep the real workouts.
 
 ## Race lead-up as built (4b, D42, D43)
 - Code: apps/api/src/modules/races/leadup.ts. Read only, from the cache, no AI, the same result with AI off or at the cap. Shown on the race detail screen (Races, then Lead-up). Ask reads it through get_race_leadup.

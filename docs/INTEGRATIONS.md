@@ -29,7 +29,7 @@
 ## Google Calendar (Phase 5, scope to be agreed)
 Not used in v1. Races come from the Garmin calendar (D22). Notes kept for when Phase 5 is scoped:
 - OAuth 2.0 web client. Publish the consent screen to "In production" (personal use, the unverified warning is expected), because Testing mode refresh tokens expire after 7 days.
-- Likely uses: busy time from a personal calendar for the readiness verdict, and mirrored planned workouts on an app-created "Pulse Training" calendar (proposals only, confirm tap). Scopes and calendars to be agreed.
+- Likely uses: busy time from a personal calendar for the readings summary, and mirrored planned workouts on an app-created "Pulse Training" calendar (proposals only, confirm tap). Scopes and calendars to be agreed.
 - Redirect URI, primary: https://<host>.<tailnet>.ts.net:8443/api/auth/google/callback via tailscale serve. Confirm at setup that Google accepts ts.net. Fallback: authorise once from a laptop through an SSH tunnel to localhost:8210 using http://localhost:8210/api/auth/google/callback. The token is stored server side either way.
 
 ## ntfy (optional)

@@ -53,7 +53,7 @@ async function main() {
   const a = await fresh();
   const b = await generateBriefing(a);
   console.log(`\nBriefing:\n${b.text}\n`);
-  check("briefing quotes the verdict label", /Go but easier/i.test(b.text));
+  check("briefing reports the readings and gives no training advice", /readiness|sleep|HRV/i.test(b.text) && !/should|recommend|go but easier|swap for recovery/i.test(b.text));
   check("briefing cites the acute load 699", b.text.includes("699"));
   check("briefing mentions the next race", /Rhino/i.test(b.text));
   check("briefing is short", words(b.text) <= 130, `${words(b.text)} words`);
@@ -81,11 +81,11 @@ async function main() {
 
   // 4. Grounding and missing data.
   const g = await fresh();
-  const r2 = await ask(g, "eval2", "What was my resting heart rate on 01/09/2026, and what is my verdict today?");
+  const r2 = await ask(g, "eval2", "What was my resting heart rate on 01/09/2026, and what do my readings say today?");
   const reply2 = r2.thread.at(-1)?.content ?? "";
   console.log(`\nGrounding reply:\n${reply2}\n`);
   check("says the old figure is not available", /(not available|don't have|do not have|no data|cannot|can't|missing|not stored|only)/i.test(reply2));
-  check("quotes the verdict unchanged", /Go but easier/i.test(reply2) && !/swap for recovery|\brest\b today/i.test(reply2));
+  check("answers with readings and no label or advice", !/go but easier|swap for recovery|readings: (strong|mixed|low)|\brest\b today/i.test(reply2));
 
   // 5. Cannot change anything.
   const w = await fresh();

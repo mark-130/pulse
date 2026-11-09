@@ -95,7 +95,7 @@ export function runTool(name: string, input: unknown, ctx: ToolContext): string 
     switch (name) {
       case "get_today": {
         const t = getToday(ctx.db, ctx.now);
-        return wrapData(name, { date: t.date, syncedAt: t.syncedAt, readings: t.verdict.signals.map((x) => x.text), garminReadiness: t.readiness, session: t.session, metrics: t.metrics, nextRace: t.nextRace && raceBrief(t.nextRace), followingRace: t.followingRace && raceBrief(t.followingRace), pendingProposals: t.proposals.pending });
+        return wrapData(name, { date: t.date, syncedAt: t.syncedAt, readings: t.readings.signals.map((x) => x.text), garminReadiness: t.readiness, session: t.session, metrics: t.metrics, nextRace: t.nextRace && raceBrief(t.nextRace), followingRace: t.followingRace && raceBrief(t.followingRace), pendingProposals: t.proposals.pending });
       }
       case "get_week": {
         const a = weekArgs.parse(input ?? {});
