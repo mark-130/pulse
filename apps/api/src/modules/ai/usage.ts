@@ -3,7 +3,7 @@ import { AI_BUDGET_TEXT, AI_OFF_TEXT, type AiStatus } from "@pulse/shared";
 import type { Config } from "../../config.js";
 import { londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
-import { aiUsage } from "../../db/schema.js";
+import { aiReservation, aiUsage } from "../../db/schema.js";
 import { costGbp, PRICES_CHECKED_ON, PRICES_USD_PER_MTOK, type TokenUsage } from "./pricing.js";
 
 export type AiConfig = Pick<Config, "ANTHROPIC_API_KEY" | "ANTHROPIC_MODEL_SMART" | "ANTHROPIC_MODEL_FAST" | "AI_MONTHLY_CAP_GBP" | "AI_USD_TO_GBP" | "AI_PROPOSALS" | "PULSE_GARMIN_WRITES">;
@@ -57,12 +57,77 @@ export function recordUsage(db: Db, config: AiConfig, entry: { feature: string; 
   return cost;
 }
 
+/** A reservation older than this is a call that never finished (a crash). The SDK gives up after AI_TIMEOUT_S, so nothing live is this old. */
+export const RESERVATION_STALE_MS = 15 * 60_000;
+
+/** Money held by calls in flight, in GBP, ignoring stale ones. */
+export function reservedGbp(db: Db, now: Date): number {
+  const cutoff = new Date(now.getTime() - RESERVATION_STALE_MS).toISOString();
+  return db.select({ n: sql<number>`coalesce(sum(${aiReservation.estimateGbp}), 0)` }).from(aiReservation).where(gte(aiReservation.ts, cutoff)).get()?.n ?? 0;
+}
+
+/** Drops reservations left behind by a crash. Safe to call at any time. */
+export function clearStaleReservations(db: Db, now: Date): void {
+  const cutoff = new Date(now.getTime() - RESERVATION_STALE_MS).toISOString();
+  db.delete(aiReservation).where(lt(aiReservation.ts, cutoff)).run();
+}
+
+/**
+ * Worst case cost of a call, in GBP, worked out before it is made: the whole prompt at the dearest input rate (a cache
+ * write costs more than plain input), counted at 3 characters a token so it errs high, plus max_tokens of output.
+ * Thinking counts as output and max_tokens bounds both, so the real cost cannot be higher.
+ */
+export function estimateCostGbp(model: string, req: { system: string; messages: unknown; tools?: unknown; maxTokens: number }, usdToGbp: number): number {
+  const chars = req.system.length + JSON.stringify(req.messages).length + (req.tools ? JSON.stringify(req.tools).length : 0);
+  const inputTokens = Math.ceil(chars / 3);
+  const p = PRICES_USD_PER_MTOK[model] ?? PRICES_USD_PER_MTOK["claude-sonnet-5-5"];
+  const rate = Math.max(p?.input ?? 0, p?.cacheWrite ?? 0);
+  return ((inputTokens * rate + req.maxTokens * (p?.output ?? 0)) / 1_000_000) * usdToGbp;
+}
+
+export type Reservation = { ok: true; id: number } | { ok: false; reason: "off" | "budget"; message: string };
+
+/**
+ * Holds the worst case cost of a call before it is made (D57). One immediate transaction reads what is spent, what is
+ * held by calls in flight, and inserts this call's hold, so two calls cannot both pass the check on the same money,
+ * even from two processes. Refused when spent + held + this estimate would go over the cap.
+ */
+export function reserve(db: Db, config: AiConfig, now: Date, entry: { feature: string; model: string; estimateGbp: number }): Reservation {
+  if (!aiConfigured(config)) return { ok: false, reason: "off", message: AI_OFF_TEXT };
+  return db.transaction(
+    (tx) => {
+      const cutoff = new Date(now.getTime() - RESERVATION_STALE_MS).toISOString();
+      tx.delete(aiReservation).where(lt(aiReservation.ts, cutoff)).run();
+      const held = tx.select({ n: sql<number>`coalesce(sum(${aiReservation.estimateGbp}), 0)` }).from(aiReservation).get()?.n ?? 0;
+      if (monthSpend(tx as unknown as Db, now).spent + held + entry.estimateGbp > config.AI_MONTHLY_CAP_GBP) {
+        return { ok: false as const, reason: "budget" as const, message: AI_BUDGET_TEXT };
+      }
+      const row = tx.insert(aiReservation).values({ ts: now.toISOString(), feature: entry.feature, model: entry.model, estimateGbp: entry.estimateGbp }).returning({ id: aiReservation.id }).get();
+      return { ok: true as const, id: row.id };
+    },
+    { behavior: "immediate" },
+  );
+}
+
+/** Gives the money back without recording a cost: the call failed. */
+export function release(db: Db, id: number): void {
+  db.delete(aiReservation).where(eq(aiReservation.id, id)).run();
+}
+
+/** Swaps the hold for the real cost in one transaction, so the money is never counted twice and never missing. */
+export function settle(db: Db, config: AiConfig, id: number, entry: { feature: string; model: string; usage: TokenUsage; now: Date }): number {
+  return db.transaction((tx) => {
+    tx.delete(aiReservation).where(eq(aiReservation.id, id)).run();
+    return recordUsage(tx as unknown as Db, config, entry);
+  });
+}
+
 export type AiGate = { ok: true } | { ok: false; reason: "off" | "budget"; message: string };
 
 /** The single place that decides whether an AI call may be made. Checked before every call, including each step of a tool loop. */
 export function aiGate(db: Db, config: AiConfig, now: Date): AiGate {
   if (!aiConfigured(config)) return { ok: false, reason: "off", message: AI_OFF_TEXT };
-  if (monthSpend(db, now).spent >= config.AI_MONTHLY_CAP_GBP) return { ok: false, reason: "budget", message: AI_BUDGET_TEXT };
+  if (monthSpend(db, now).spent + reservedGbp(db, now) >= config.AI_MONTHLY_CAP_GBP) return { ok: false, reason: "budget", message: AI_BUDGET_TEXT };
   return { ok: true };
 }
 

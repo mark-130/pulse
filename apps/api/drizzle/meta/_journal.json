@@ -71,6 +71,13 @@
       "when": 1794213604898,
       "tag": "0009_history_import",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794230331487,
+      "tag": "0010_ai_reservation",
+      "breakpoints": true
     }
   ]
 }

@@ -227,10 +227,10 @@ describe("usage and the monthly cap", () => {
   });
 
   it("stops in the middle of a tool loop once a call takes spend over the cap", async () => {
-    // The first call costs far more than the 1p left, so the second call of the loop must not happen.
+    // The first call fits under the cap when reserved, then costs far more than the 50p left, so the second call of the loop must not happen.
     const llm = mockLlm((_r, n) => (n === 1 ? toolUse("get_today", {}, "a", usage({ inputTokens: 5_000_000 })) : text("never reached")));
     const s = await setup({ llm });
-    addUsage(s, 4.99);
+    addUsage(s, 4.5);
     const r = await s.chat("how is today?");
     expect(r).toMatchObject({ state: "budget", message: "AI cap reached for this month" });
     expect(llm.requests).toHaveLength(1);

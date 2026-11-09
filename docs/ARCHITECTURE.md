@@ -21,6 +21,7 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - ai_text: kind, key, text, data JSON, model, tokens, created_at, primary key (kind, key). Cached AI text: weekly_review (week start) or debrief (activity id). Rewritten only on Refresh.
 - daily_reading: kind, date, value, value2, value3 (primary key kind and date). Imported daily readings: sleep (score, hours), hrv, rhr, readiness, body_battery (charged, drained), endurance (weekly points), hill (overall, strength, endurance), lactate (heart rate, speed). Summaries only (D51).
 - backfill_progress: kind, window_start, window_end, status (done or failed), rows, reason, updated_at (primary key kind and window_start). The history import upserts by kind and window start.
+- ai_reservation: id, ts, feature, model, estimate_gbp. Money held for a model call in flight (D57). Deleted when the call finishes or fails. Rows older than 15 minutes are ignored and removed.
 - ai_usage: ts, feature, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_gbp (real, GBP)
 - settings: key, value JSON (garmin_backfill windows, home coordinates, Phase 5 calendar allowlist)
 - secret: name, ciphertext (AES-256-GCM, key from PULSE_SECRET_KEY)

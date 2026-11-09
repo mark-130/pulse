@@ -144,6 +144,16 @@ export const chatMessage = sqliteTable("chat_message", {
   toolCalls: json("tool_calls"),
 });
 
+/** Money held for a model call that has started and not finished (D57). Deleted when the call ends, whatever the outcome. */
+export const aiReservation = sqliteTable("ai_reservation", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ts: text("ts").notNull(),
+  feature: text("feature").notNull(),
+  model: text("model").notNull(),
+  /** Worst case cost of the call in GBP: the whole prompt at the dearest input rate plus max_tokens of output. */
+  estimateGbp: real("estimate_gbp").notNull(),
+});
+
 export const aiUsage = sqliteTable("ai_usage", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   ts: text("ts").notNull(),
