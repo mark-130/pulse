@@ -101,4 +101,5 @@ Built in Phase 3 (apps/api/src/modules/proposals). Phase 3 covers Garmin only, a
 - pino logging with token redaction. Secrets only in env or the encrypted secret table.
 - Nightly SQLite backup (VACUUM INTO /data/backups, keep 7). Check that existing Restic jobs cover /mnt/data/AppData/pulse.
 - Dockerfile: multi-stage on node:22-alpine, non-root, healthcheck on /api/health.
+- CI permissions (D55): the workflow grants nothing by default. The check job has contents: read only. Only the image job also has packages: write. Every action is pinned to a full commit SHA with the version in a comment, and Dependabot proposes updates weekly.
 - CI: GitHub Actions on the existing self-hosted runner builds and pushes ghcr.io/mark-130/pulse:latest and :sha. Watchtower pulls updates.
