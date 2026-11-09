@@ -16,7 +16,11 @@ import * as up from "../garmin/upstream.js";
 /** A window that failed in a way the engine reacts to. */
 export class HistoryError extends Error {
   constructor(
-    readonly kind: "timeout" | "rate_limited" | "shape" | "failed",
+    /**
+     * range_too_big is a window size bug, not a data failure (D60). auth and unreachable stop the whole import.
+     * rate_limited backs off and pauses. shape means the answer could not be read.
+     */
+    readonly kind: "timeout" | "rate_limited" | "shape" | "range_too_big" | "auth" | "unreachable" | "failed",
     message: string,
   ) {
     super(message);
@@ -27,19 +31,28 @@ const RATE_LIMITED = /\b429\b|rate.?limit|too many requests|throttl/i;
 const MAX_REASON = 150;
 
 const UNREACHABLE = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|socket hang up|network/i;
+/** Garmin's "HTTP 400 - requested date range is too big". The window was too long for the tool, which says nothing about the data. */
+const RANGE_TOO_BIG = /(date )?range (is |was )?too (big|large|long)|too (big|large|long) (a )?(date )?range|range.{0,30}exceed/i;
+const AUTH = /\b(401|403)\b|unauthori[sz]ed|forbidden|authentication (failed|required|error)|not logged in|login (failed|required)|invalid (token|credentials)|session expired/i;
 
 export function classifyText(text: string): HistoryError {
   if (RATE_LIMITED.test(text)) return new HistoryError("rate_limited", "Garmin asked us to slow down (rate limited).");
   if (isTimeoutError(text)) return new HistoryError("timeout", "Garmin did not answer in time.");
-  if (UNREACHABLE.test(text)) return new HistoryError("failed", "Could not reach the Garmin server.");
+  if (RANGE_TOO_BIG.test(text)) return new HistoryError("range_too_big", "Garmin rejected the date range as too long.");
+  if (AUTH.test(text)) return new HistoryError("auth", "Garmin refused the login. Check the Garmin connection.");
+  if (UNREACHABLE.test(text)) return new HistoryError("unreachable", "Could not reach the Garmin server.");
   return new HistoryError("failed", sanitiseError(text).slice(0, MAX_REASON));
 }
+
+/** Errors that end the whole import, whatever kind was being fetched: the login failed, or Garmin cannot be reached. */
+export const isFatal = (e: HistoryError): boolean => e.kind === "auth" || e.kind === "unreachable";
 
 export function classify(err: unknown): HistoryError {
   if (err instanceof HistoryError) return err;
   const text = err instanceof Error ? err.message : String(err);
   const status = typeof err === "object" && err !== null && "status" in err && typeof (err as { status: unknown }).status === "number" ? (err as { status: number }).status : null;
   if (status === 429) return new HistoryError("rate_limited", "Garmin asked us to slow down (rate limited).");
+  if (status === 401 || status === 403) return new HistoryError("auth", "Garmin refused the login. Check the Garmin connection.");
   return classifyText(text);
 }
 
@@ -102,6 +115,27 @@ export function storedDays(db: Db, kind: string, from: string, to: string): Set<
   return new Set(db.select({ date: dailyReading.date }).from(dailyReading).where(eq(dailyReading.kind, kind)).all().map((r) => r.date).filter((d) => d >= from && d <= to));
 }
 
+// ---------------------------------------------------------------- window sizes
+/**
+ * Window sizes for every range tool, in one place (D60). start is the first window in days, max the most it ever grows to.
+ * documented says whether the limit comes from the tool's own description in the Garmin MCP server. Where the description
+ * gives no limit, the window is fixed at a size that is known to work and never grows: body battery was rejected at 60
+ * days ("requested date range is too big") and verified at 14, and endurance score, hill score and lactate threshold
+ * have no stated limit, so they use the same 14. Activities are fetched in pages and worked at up to 90 days in the first run.
+ * A tool that still answers "range too big" is halved and the size that worked is remembered (see the engine).
+ */
+export const RANGE_LIMITS: Record<string, { start: number; max: number; documented: boolean; note: string }> = {
+  activities: { start: 30, max: 90, documented: false, note: "paged, worked at 90 days" },
+  sleep: { start: 30, max: 90, documented: true, note: "Maximum: 90 nights per call" },
+  hrv: { start: 30, max: 30, documented: true, note: "Maximum: 30 days" },
+  body_battery: { start: 14, max: 14, documented: false, note: "no limit stated, 60 days rejected, 14 verified" },
+  vo2max: { start: 30, max: 90, documented: true, note: "Maximum: 90 days" },
+  endurance: { start: 14, max: 14, documented: false, note: "no limit stated" },
+  hill: { start: 14, max: 14, documented: false, note: "no limit stated" },
+  lactate: { start: 14, max: 14, documented: false, note: "no limit stated" },
+};
+const L = (id: keyof typeof RANGE_LIMITS) => RANGE_LIMITS[id] as { start: number; max: number };
+
 // ---------------------------------------------------------------- kind specs
 export interface RangeSpec {
   id: HistoryKindId;
@@ -127,8 +161,8 @@ const shape = (what: string) => new HistoryError("shape", `Unexpected answer sha
 const sleepRange: RangeSpec = {
   id: "sleep",
   tool: "get_sleep_summary_range",
-  start: 30,
-  limit: 90,
+  start: L("sleep").start,
+  limit: L("sleep").max,
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
@@ -151,8 +185,8 @@ const HRV_KEYS = ["last_night_avg_hrv_ms", "last_night_avg", "lastNightAvg", "hr
 const hrvRange: RangeSpec = {
   id: "hrv",
   tool: "get_hrv_trend",
-  start: 30,
-  limit: 30,
+  start: L("hrv").start,
+  limit: L("hrv").max,
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
@@ -174,8 +208,8 @@ const hrvRange: RangeSpec = {
 const bodyBatteryRange: RangeSpec = {
   id: "body_battery",
   tool: "get_body_battery",
-  start: 30,
-  limit: 90,
+  start: L("body_battery").start,
+  limit: L("body_battery").max,
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
@@ -194,8 +228,8 @@ const bodyBatteryRange: RangeSpec = {
 const vo2Range: RangeSpec = {
   id: "vo2max",
   tool: "get_vo2max_trend",
-  start: 30,
-  limit: 90,
+  start: L("vo2max").start,
+  limit: L("vo2max").max,
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
@@ -209,8 +243,8 @@ const vo2Range: RangeSpec = {
 const enduranceRange: RangeSpec = {
   id: "endurance",
   tool: "get_endurance_score",
-  start: 30,
-  limit: 90,
+  start: L("endurance").start,
+  limit: L("endurance").max,
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
@@ -233,8 +267,8 @@ const enduranceRange: RangeSpec = {
 const hillRange: RangeSpec = {
   id: "hill",
   tool: "get_hill_score",
-  start: 30,
-  limit: 90,
+  start: L("hill").start,
+  limit: L("hill").max,
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
@@ -253,8 +287,8 @@ const hillRange: RangeSpec = {
 const lactateRange: RangeSpec = {
   id: "lactate",
   tool: "get_lactate_threshold",
-  start: 30,
-  limit: 90,
+  start: L("lactate").start,
+  limit: L("lactate").max,
   async fetch(session, from, to, h) {
     const data = await call(session, this.tool, { start_date: from, end_date: to });
     if (data === null) return 0;
@@ -283,8 +317,8 @@ const lactateRange: RangeSpec = {
 const activitiesRange: RangeSpec = {
   id: "activities",
   tool: "get_activities_by_date",
-  start: 30,
-  limit: 90,
+  start: L("activities").start,
+  limit: L("activities").max,
   async fetch(session, from, to, h) {
     let rows = 0;
     // Newest first, in pages. Summaries only: name, date, type, distance, duration, average and maximum heart rate.

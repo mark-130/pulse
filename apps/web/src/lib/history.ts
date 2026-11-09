@@ -16,8 +16,20 @@ export function stateLine(s: HistoryStatus): string {
     case "stopped":
       return "Stopped.";
     case "complete":
-      return s.incomplete ? `Finished, ${plural(s.failedWindows.length, "window")} failed.` : "Complete.";
+      return "Complete.";
+    case "complete_with_issues":
+      return "Complete with issues.";
   }
+}
+
+/** Per kind: "Done", "Running", "Needs attention" or "Waiting". */
+export const kindStateText = (k: HistoryStatus["kinds"][number]): string => ({ done: "Done", running: "Running", attention: "Needs attention", waiting: "Waiting" })[k.state];
+
+/** The kinds that need attention, for the summary under the state line. Null when there are none. */
+export function issuesLine(s: HistoryStatus): string | null {
+  const names = s.kinds.filter((k) => k.state === "attention").map((k) => k.label);
+  if (names.length === 0 || s.state === "running") return null;
+  return `${plural(names.length, "kind")} need${names.length === 1 ? "s" : ""} attention: ${names.join(", ")}. Start again retries only the failed windows and anything not yet attempted.`;
 }
 
 /** "Start", "Start again", "Retry failed windows", "Pause" or "Resume": the one action that fits the state. */
@@ -25,7 +37,8 @@ export function primaryAction(s: HistoryStatus): { label: string; action: "start
   if (s.state === "running") return { label: "Pause", action: "pause" };
   if (s.state === "paused") return { label: "Resume", action: "resume" };
   if (s.state === "stopped") return { label: "Start again", action: "start" };
-  if (s.state === "complete") return s.incomplete ? { label: "Retry failed windows", action: "start" } : null;
+  if (s.state === "complete_with_issues") return { label: "Start again", action: "start" };
+  if (s.state === "complete") return null;
   return { label: "Start", action: "start" };
 }
 

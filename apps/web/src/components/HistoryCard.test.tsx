@@ -4,12 +4,12 @@ import { describe, expect, it } from "vitest";
 import { finishText, movingAverage7, primaryAction, progressText, stateLine } from "@/lib/history";
 import { HistoryView } from "./HistoryCard";
 
-const kinds = [
-  { id: "activities", label: "Activities", done: 730, total: 730, failed: 0 },
-  { id: "sleep", label: "Sleep", done: 214, total: 730, failed: 1 },
-  { id: "hrv", label: "HRV", done: 0, total: 730, failed: 0 },
+const kinds: HistoryStatus["kinds"] = [
+  { id: "activities", label: "Activities", done: 730, total: 730, failed: 0, state: "done", reason: null },
+  { id: "sleep", label: "Sleep", done: 214, total: 730, failed: 1, state: "running", reason: null },
+  { id: "hrv", label: "HRV", done: 0, total: 730, failed: 0, state: "waiting", reason: null },
 ];
-const base: HistoryStatus = { state: "idle", days: 730, from: "2024-11-10", to: "2026-11-09", startedAt: null, estimatedFinish: null, pausedUntil: null, reason: null, current: null, waiting: false, kinds, failedWindows: [], incomplete: false, notImported: ["Race predictions", "Personal records", "Heart rate zones"] };
+const base: HistoryStatus = { state: "idle", days: 730, from: "2024-11-10", to: "2026-11-09", startedAt: null, estimatedFinish: null, pausedUntil: null, reason: null, current: null, waiting: false, kinds, failedWindows: [], notImported: ["Race predictions", "Personal records", "Heart rate zones"] };
 const html = (s: HistoryStatus, pending = false) => renderToStaticMarkup(<HistoryView s={s} pending={pending} onAction={() => undefined} />);
 
 describe("history import card", () => {
@@ -30,14 +30,14 @@ describe("history import card", () => {
     expect(primaryAction({ ...base, state: "paused" })).toEqual({ label: "Resume", action: "resume" });
     expect(primaryAction({ ...base, state: "stopped" })).toEqual({ label: "Start again", action: "start" });
     expect(primaryAction({ ...base, state: "complete" })).toBeNull();
-    expect(primaryAction({ ...base, state: "complete", incomplete: true })).toEqual({ label: "Retry failed windows", action: "start" });
+    expect(primaryAction({ ...base, state: "complete_with_issues" })).toEqual({ label: "Start again", action: "start" });
     expect(html(base)).toContain(">Start<");
     expect(html({ ...base, state: "running" })).toContain(">Pause<");
     expect(html({ ...base, state: "paused" })).toContain(">Resume<");
   });
 
   it("every button is a 44px tap target", () => {
-    for (const state of ["idle", "running", "paused", "stopped"] as const) {
+    for (const state of ["idle", "running", "paused", "stopped", "complete_with_issues"] as const) {
       const h = html({ ...base, state });
       expect(h).toContain("min-h-11");
       expect(h).not.toMatch(/<button[^>]*size-/);
@@ -62,7 +62,37 @@ describe("history import card", () => {
     expect(stopped).toContain("Details");
     expect(stopped).toContain("Three windows in a row failed.");
     expect(stopped).toContain("Sleep, 01/10/2026 to 30/10/2026: Garmin did not answer in time.");
-    expect(html({ ...base, state: "complete", incomplete: true, failedWindows: [{ kind: "hrv", label: "HRV", from: "2026-10-01", to: "2026-10-15", reason: "x" }] })).toContain("Finished, 1 window failed.");
+  });
+
+  const attention: HistoryStatus["kinds"] = [
+    { id: "activities", label: "Activities", done: 730, total: 730, failed: 0, state: "done", reason: null },
+    { id: "vo2max", label: "VO2 max", done: 730, total: 730, failed: 0, state: "done", reason: null },
+    { id: "body_battery", label: "Body battery", done: 360, total: 730, failed: 5, state: "attention", reason: "Garmin rejected the date range as too long." },
+  ];
+  const failed = [{ kind: "body_battery", label: "Body battery", from: "2025-05-19", to: "2025-07-17", reason: "Garmin rejected the date range as too long." }];
+
+  it("shows a state for every kind in words, not colour alone: Done, Running, Needs attention, Waiting", () => {
+    const h = html({ ...base, state: "running", current: "Sleep" });
+    expect(h).toContain(">Done<");
+    expect(h).toContain("Running, 1 failed");
+    expect(h).toContain(">Waiting<");
+    expect(html({ ...base, state: "complete_with_issues", kinds: attention, failedWindows: failed })).toContain("Needs attention, 5 failed");
+  });
+
+  it("says Complete with issues, names the kinds that need attention, offers Start again, and gives the reasons under Details", () => {
+    const h = html({ ...base, state: "complete_with_issues", kinds: attention, failedWindows: failed, reason: "Some windows failed: Body battery. Start again retries only those." });
+    expect(h).toContain("Complete with issues.");
+    expect(h).toContain("1 kind needs attention: Body battery.");
+    expect(h).toContain("Start again retries only the failed windows and anything not yet attempted.");
+    expect(h).toContain(">Start again<");
+    expect(h).toContain("<summary");
+    expect(h).toContain("Body battery:</span> Garmin rejected the date range as too long.");
+    expect(h).toContain("Body battery, 19/05/2025 to 17/07/2025: Garmin rejected the date range as too long.");
+    expect(stateLine({ ...base, state: "complete_with_issues" })).toBe("Complete with issues.");
+  });
+
+  it("does not list needs attention while the import is still running", () => {
+    expect(html({ ...base, state: "running", kinds: attention })).not.toContain("need attention");
   });
 
   it("explains a rate limit pause and when it resumes", () => {

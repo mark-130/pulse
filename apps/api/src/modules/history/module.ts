@@ -61,7 +61,10 @@ export function createHistoryModule(deps: HistoryDeps): { module: Module<Hono>; 
   const start = () => {
     const st = loadState(deps.db, deps.days);
     if (st.state === "running" && loop) return;
-    saveState(deps.db, { state: "running", days: deps.days, reason: null, pausedUntil: null, consecutiveFailures: 0, rateLimitStreak: 0, startedAt: st.startedAt ?? clock().toISOString() }, deps.days);
+    // A fresh Start (after a stop or a finished run) clears what needed attention, so only the failed windows and the windows
+    // not yet attempted run, once each. Resuming a pause keeps it, so a kind that needs attention is not retried mid-run.
+    const resuming = st.state === "paused" || st.state === "running";
+    saveState(deps.db, { state: "running", days: deps.days, reason: null, pausedUntil: null, consecutiveFailures: 0, rateLimitStreak: 0, attention: resuming ? st.attention : {}, startedAt: st.startedAt ?? clock().toISOString() }, deps.days);
     kick();
   };
 

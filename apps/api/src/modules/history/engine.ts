@@ -1,17 +1,19 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gte, lte, ne } from "drizzle-orm";
 import { HISTORY_KINDS, type HistoryKindId, type HistoryState } from "@pulse/shared";
 import { addDays, daysBetween, londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { backfillProgress, settings } from "../../db/schema.js";
 import type { Logger } from "../../logger.js";
 import type { GarminConnector, GarminSession } from "../garmin/client.js";
-import { classify, DAY_SPECS, HistoryError, RANGE_SPECS, storedDays, type DaySpec, type Helpers, type RangeSpec } from "./kinds.js";
+import { classify, DAY_SPECS, HistoryError, isFatal, RANGE_SPECS, storedDays, type DaySpec, type Helpers, type RangeSpec } from "./kinds.js";
 
 /**
- * The history import engine (D51). One-off, read only, resumable. Gentle on purpose: windows one at a time, a pause
- * between them, per-day tools two calls at a time, backoff when Garmin says slow down, and a stop after three failed
- * windows in a row. It yields to the routine sync and the nightly backup. Progress lives in backfill_progress, so a
- * restart resumes without repeating finished windows and a rerun never duplicates anything.
+ * The history import engine (D51, D60). One-off, read only, resumable. Gentle on purpose: windows one at a time, a pause
+ * between them, per-day tools two calls at a time, backoff when Garmin says slow down. One failing kind never blocks the
+ * others: after three failed windows in a row inside a kind, that kind is marked "needs attention" and the import moves on.
+ * The whole import stops only for a failed login, an unreachable Garmin, or a rate limit pause. It yields to the routine
+ * sync and the nightly backup. Progress lives in backfill_progress, so a restart resumes without repeating finished
+ * windows and a rerun never duplicates anything.
  */
 export const WINDOW_PAUSE_MS = 2_000;
 export const PER_DAY_CONCURRENCY = 2;
@@ -19,7 +21,8 @@ export const PER_DAY_CONCURRENCY = 2;
 export const RATE_BASE_MS = 30_000;
 export const RATE_PAUSE_MS = 3_600_000;
 export const RATE_LIMITED_IN_A_ROW = 3;
-export const FAILED_WINDOWS_TO_STOP = 3;
+/** Failed windows in a row, inside one kind, after which that kind needs attention and the import moves to the next kind. */
+export const FAILED_WINDOWS_PER_KIND = 3;
 export const BUSY_POLL_MS = 5_000;
 /** A range window grows towards its tool's limit after this many successful full windows in a row. */
 export const GROW_AFTER = 3;
@@ -34,11 +37,16 @@ export interface ImportState {
   activeMs: number;
   reason: string | null;
   pausedUntil: string | null;
+  /** Kept for old states. The failure count is now per kind and per run, so nothing reads this. */
   consecutiveFailures: number;
   rateLimitStreak: number;
+  /** Kinds that need attention, with the reason, from this run. Skipped until the next Start (D60). */
+  attention: Record<string, string>;
+  /** The window size that worked for a kind after Garmin said the range was too big, so it is not asked for again (D60). */
+  windowSizes: Record<string, number>;
 }
 
-export const freshState = (days: number): ImportState => ({ state: "idle", days, startedAt: null, activeMs: 0, reason: null, pausedUntil: null, consecutiveFailures: 0, rateLimitStreak: 0 });
+export const freshState = (days: number): ImportState => ({ state: "idle", days, startedAt: null, activeMs: 0, reason: null, pausedUntil: null, consecutiveFailures: 0, rateLimitStreak: 0, attention: {}, windowSizes: {} });
 
 export function loadState(db: Db, days: number): ImportState {
   const row = db.select().from(settings).where(eq(settings.key, STATE_KEY)).get();
@@ -109,7 +117,8 @@ function record(deps: EngineDeps, kind: string, from: string, to: string, status
 }
 
 // ---------------------------------------------------------------- one window
-type Outcome = { status: "done"; rows: number } | { status: "failed"; reason: string } | { status: "rate_limited" };
+/** learned: the size that worked after Garmin said a range was too big. Only set when that happened. */
+type Outcome = { status: "done"; rows: number; learned: number | null } | { status: "failed"; reason: string } | { status: "rate_limited" };
 
 async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
@@ -122,24 +131,40 @@ async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-/** Range tool, one call. A timeout retries the window once at half size. Each half is recorded on its own. */
+const halve = (from: string, to: string) => {
+  const size = Math.ceil((daysBetween(from, to) + 1) / 2);
+  return { size, mid: addDays(from, size - 1) };
+};
+
+/**
+ * Range tool, one call. A timeout retries the window once at half size. "Range too big" is a window size bug, not a data
+ * failure (D60): the window is halved and tried again, as far down as needed, and the size that worked is returned so it
+ * is remembered. Each piece is recorded on its own. A login failure or an unreachable Garmin is thrown to stop the import.
+ */
 async function rangeWindow(deps: EngineDeps, spec: RangeSpec, session: GarminSession, h: Helpers, from: string, to: string, depth: number): Promise<Outcome> {
   try {
     const rows = await spec.fetch(session, from, to, h);
     record(deps, spec.id, from, to, "done", rows, null);
-    return { status: "done", rows };
+    // A failed record covered by this window is settled.
+    deps.db.delete(backfillProgress).where(and(eq(backfillProgress.kind, spec.id), eq(backfillProgress.status, "failed"), gte(backfillProgress.windowStart, from), lte(backfillProgress.windowEnd, to), ne(backfillProgress.windowStart, from))).run();
+    return { status: "done", rows, learned: null };
   } catch (err) {
     const e = classify(err);
     if (e.kind === "rate_limited") return { status: "rate_limited" };
-    if (e.kind === "timeout" && depth === 0 && from < to) {
-      const half = Math.ceil((daysBetween(from, to) + 1) / 2);
-      const mid = addDays(from, half - 1);
-      // Newest half first, like every other window. Neither half retries again.
-      const b = await rangeWindow(deps, spec, session, h, addDays(mid, 1), to, 1);
+    if (isFatal(e)) throw e;
+    const tooBig = e.kind === "range_too_big";
+    // A too big range is halved up to three times (14, 7, 4, 2 days): a size bug is worth a few more calls, a dead tool is not.
+    if (((e.kind === "timeout" && depth === 0) || (tooBig && depth < 3)) && from < to) {
+      const { size, mid } = halve(from, to);
+      // Newest half first, like every other window.
+      const b = await rangeWindow(deps, spec, session, h, addDays(mid, 1), to, depth + 1);
       if (b.status === "rate_limited") return b;
-      const a = await rangeWindow(deps, spec, session, h, from, mid, 1);
+      const a = await rangeWindow(deps, spec, session, h, from, mid, depth + 1);
       if (a.status === "rate_limited") return a;
-      if (a.status === "done" && b.status === "done") return { status: "done", rows: a.rows + b.rows };
+      if (a.status === "done" && b.status === "done") {
+        const learned = tooBig ? Math.min(size, a.learned ?? size, b.learned ?? size) : null;
+        return { status: "done", rows: a.rows + b.rows, learned };
+      }
       return { status: "failed", reason: a.status === "failed" ? a.reason : b.status === "failed" ? b.reason : "failed" };
     }
     if (e.kind === "shape") throw e;
@@ -168,7 +193,8 @@ async function dayWindow(deps: EngineDeps, spec: DaySpec, session: GarminSession
     }
   });
   if (rate) return { status: "rate_limited" };
-  if (failures.some((f) => f.kind === "shape")) throw failures.find((f) => f.kind === "shape");
+  const fatal = failures.find((f) => f.kind === "shape" || isFatal(f));
+  if (fatal) throw fatal;
   if (timeouts.length > 0 && depth === 0 && from < to) {
     const half = Math.ceil((daysBetween(from, to) + 1) / 2);
     const mid = addDays(from, half - 1);
@@ -176,7 +202,7 @@ async function dayWindow(deps: EngineDeps, spec: DaySpec, session: GarminSession
     if (b.status === "rate_limited") return b;
     const a = await dayWindow(deps, spec, session, h, from, mid, 1);
     if (a.status === "rate_limited") return a;
-    if (a.status === "done" && b.status === "done") return { status: "done", rows: rows + a.rows + b.rows };
+    if (a.status === "done" && b.status === "done") return { status: "done", rows: rows + a.rows + b.rows, learned: null };
     return { status: "failed", reason: a.status === "failed" ? a.reason : b.status === "failed" ? b.reason : "failed" };
   }
   if (timeouts.length > 0 || failures.length > 0) {
@@ -185,7 +211,7 @@ async function dayWindow(deps: EngineDeps, spec: DaySpec, session: GarminSession
     return { status: "failed", reason };
   }
   record(deps, spec.id, from, to, "done", rows, null);
-  return { status: "done", rows };
+  return { status: "done", rows, learned: null };
 }
 
 // ---------------------------------------------------------------- the run
@@ -205,7 +231,18 @@ async function waitWhileBusy(deps: EngineDeps): Promise<boolean> {
   return true;
 }
 
-/** Runs the import until it is complete, paused, rate limited for an hour, or stopped after three failed windows. */
+/**
+ * The order the kinds run in (D60): kinds with nothing imported yet first, then kinds that are partly done, and body battery
+ * last wherever it stands, because it is the kind that has failed. Within a group the order is the one on the card.
+ */
+export function runOrder(db: Db, from: string, to: string): HistoryKindId[] {
+  const group = (id: HistoryKindId) => (id === "body_battery" ? 2 : doneDays(db, id, from, to).size === 0 ? 0 : 1);
+  return HISTORY_KINDS.map((k, i) => ({ id: k.id, i, g: group(k.id) }))
+    .sort((a, b) => a.g - b.g || a.i - b.i)
+    .map((x) => x.id);
+}
+
+/** Runs the import until every kind has been tried, or it is paused, rate limited for an hour, or stopped by a failed login or an unreachable Garmin. */
 export async function runImport(deps: EngineDeps): Promise<ImportState["state"]> {
   const today = londonDate(deps.now());
   const from = addDays(today, -(deps.days - 1));
@@ -217,14 +254,24 @@ export async function runImport(deps: EngineDeps): Promise<ImportState["state"]>
     saveState(deps.db, { activeMs: loadState(deps.db, deps.days).activeMs + Math.max(0, t - lastTick) }, deps.days);
     lastTick = t;
   };
+  const setAttention = (kind: string, reason: string) => {
+    const attention = { ...loadState(deps.db, deps.days).attention, [kind]: reason };
+    saveState(deps.db, { attention }, deps.days);
+  };
 
   try {
-    for (const meta of HISTORY_KINDS) {
-      const kind: HistoryKindId = meta.id;
+    for (const kind of runOrder(deps.db, from, today)) {
+      const meta = HISTORY_KINDS.find((k) => k.id === kind) as (typeof HISTORY_KINDS)[number];
+      // A kind that needs attention waits for the next Start.
+      if (loadState(deps.db, deps.days).attention[kind]) continue;
       const range = RANGE_SPECS[kind];
       let dayMode = range === undefined;
-      let size = range?.start ?? 14;
+      // A size Garmin accepted after saying the range was too big is remembered, and is also the most the window grows to.
+      const learned = loadState(deps.db, deps.days).windowSizes[kind];
+      let maxSize = Math.min(range?.limit ?? 14, learned ?? Infinity);
+      let size = Math.min(range?.start ?? 14, maxSize);
       let successes = 0;
+      let failedInRow = 0;
       const tried = new Set<string>();
       deps.live.current = meta.label;
 
@@ -237,7 +284,7 @@ export async function runImport(deps: EngineDeps): Promise<ImportState["state"]>
         lastTick = deps.now().getTime();
 
         const session = await deps.connect().catch((err: unknown) => {
-          throw new HistoryError("failed", classify(err).message);
+          throw new HistoryError("unreachable", classify(err).message);
         });
         let outcome: Outcome;
         try {
@@ -245,6 +292,7 @@ export async function runImport(deps: EngineDeps): Promise<ImportState["state"]>
           try {
             outcome = dayMode ? await dayWindow(deps, DAY_SPECS[kind] as DaySpec, session, h, win.from, win.to, 0) : await rangeWindow(deps, range as RangeSpec, session, h, win.from, win.to, 0);
           } catch (err) {
+            if (err instanceof HistoryError && isFatal(err)) throw err;
             // The range answer could not be read. Sleep and HRV fall back to their per-day tools for the rest of the run.
             if (err instanceof HistoryError && err.kind === "shape" && !dayMode && DAY_SPECS[kind]) {
               deps.log.warn({ kind, reason: err.message }, "history range answer unreadable, using the per-day tool");
@@ -276,20 +324,27 @@ export async function runImport(deps: EngineDeps): Promise<ImportState["state"]>
         for (const d of dayRange(win.from, win.to)) tried.add(d);
 
         if (outcome.status === "failed") {
-          const failures = loadState(deps.db, deps.days).consecutiveFailures + 1;
+          failedInRow++;
           deps.log.warn({ kind, from: win.from, to: win.to, reason: outcome.reason }, "history window failed");
-          if (failures >= FAILED_WINDOWS_TO_STOP) {
-            saveState(deps.db, { state: "stopped", consecutiveFailures: failures, reason: `Three windows in a row failed. Last: ${meta.label}, ${win.from} to ${win.to}. ${outcome.reason}` }, deps.days);
-            return "stopped";
-          }
-          saveState(deps.db, { consecutiveFailures: failures }, deps.days);
           successes = 0;
+          if (failedInRow >= FAILED_WINDOWS_PER_KIND) {
+            // This kind needs attention. Carry on with the next one: a failing kind never blocks the others.
+            setAttention(kind, outcome.reason);
+            deps.log.warn({ kind }, "history kind needs attention, moving on");
+            break;
+          }
         } else {
-          saveState(deps.db, { consecutiveFailures: 0 }, deps.days);
-          if (!dayMode && range && daysBetween(win.from, win.to) + 1 >= size) {
+          failedInRow = 0;
+          if (outcome.learned !== null && outcome.learned < maxSize) {
+            // Garmin said the range was too big, and a smaller one worked: use that from now on, and remember it.
+            maxSize = outcome.learned;
+            size = outcome.learned;
+            saveState(deps.db, { windowSizes: { ...loadState(deps.db, deps.days).windowSizes, [kind]: outcome.learned } }, deps.days);
+            deps.log.warn({ kind, size: outcome.learned }, "history window size reduced: Garmin said the range was too big");
+          } else if (!dayMode && range && daysBetween(win.from, win.to) + 1 >= size) {
             successes++;
-            if (successes >= GROW_AFTER && size < range.limit) {
-              size = Math.min(range.limit, size * 2);
+            if (successes >= GROW_AFTER && size < maxSize) {
+              size = Math.min(maxSize, size * 2);
               successes = 0;
             }
           }
@@ -298,7 +353,13 @@ export async function runImport(deps: EngineDeps): Promise<ImportState["state"]>
         lastTick = deps.now().getTime();
       }
     }
-    saveState(deps.db, { state: "complete", reason: null, pausedUntil: null }, deps.days);
+    // Every kind has had its turn. Any day still not covered belongs to a failed window: that is "complete with issues".
+    const issues = HISTORY_KINDS.filter((k) => doneDays(deps.db, k.id, from, today).size < deps.days).map((k) => k.label);
+    if (issues.length > 0) {
+      saveState(deps.db, { state: "complete_with_issues", reason: `Some windows failed: ${issues.join(", ")}. Start again retries only those.`, pausedUntil: null }, deps.days);
+      return "complete_with_issues";
+    }
+    saveState(deps.db, { state: "complete", reason: null, pausedUntil: null, attention: {} }, deps.days);
     return "complete";
   } catch (err) {
     const e = classify(err);

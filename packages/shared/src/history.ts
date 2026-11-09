@@ -23,7 +23,8 @@ export type HistoryKindId = (typeof HISTORY_KINDS)[number]["id"];
 /** Garmin has no history option for these, so they are not imported. They build up from the day they are first synced. */
 export const HISTORY_NOT_IMPORTED = ["Race predictions", "Personal records", "Heart rate zones"] as const;
 
-export const historyStateSchema = z.enum(["idle", "running", "paused", "stopped", "complete"]);
+/** complete_with_issues: every kind was tried, but some windows failed (D60). Start again retries only those. */
+export const historyStateSchema = z.enum(["idle", "running", "paused", "stopped", "complete", "complete_with_issues"]);
 export type HistoryState = z.infer<typeof historyStateSchema>;
 
 export const historyStatusSchema = z.object({
@@ -43,10 +44,9 @@ export const historyStatusSchema = z.object({
   current: z.string().nullable(),
   /** Waiting for the routine sync or the nightly backup. */
   waiting: z.boolean(),
-  kinds: z.array(z.object({ id: z.string(), label: z.string(), done: z.number(), total: z.number(), failed: z.number() })),
+  /** Per kind: done, running, needs attention (with the reason in plain words) or waiting its turn (D60). */
+  kinds: z.array(z.object({ id: z.string(), label: z.string(), done: z.number(), total: z.number(), failed: z.number(), state: z.enum(["done", "running", "attention", "waiting"]), reason: z.string().nullable() })),
   failedWindows: z.array(z.object({ kind: z.string(), label: z.string(), from: z.string(), to: z.string(), reason: z.string() })),
-  /** Everything fetched, but some windows failed. Start again to retry them. */
-  incomplete: z.boolean(),
   /** What Garmin gives no history for. */
   notImported: z.array(z.string()),
 });

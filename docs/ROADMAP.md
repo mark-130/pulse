@@ -36,9 +36,9 @@ Built: the Fitness tab on Trends (race predictions with the daily snapshot table
 ### Tooling between phases: race day forecast (D59)
 Built: a read-only forecast on the race detail ("Forecast at the start", from Open-Meteo, no key, no AI) with a Forecast place field, a one line forecast on Today when the next race is within 7 days, the weather sync job and the get_race_weather read tool. Facts only (D42). Not built: forecasts beyond 14 days, a weather chart, notifications.
 
-### Phase 4c: history import (built, waiting for Mark to start it, D51 to D53)
+### Phase 4c: history import (built, first run found the body battery window bug, fixed in D60; D51 to D53)
 Scope as built: a one-off, read-only, resumable import of 730 days (PULSE_HISTORY_DAYS) of Garmin history, started from Settings, gentle on the unofficial API. Trends ranges of 4 weeks, 3 months, 12 months and 24 months with 7 day averages, a "This year against last year" card, longer Fitness sparklines, and one AI read tool, get_history_summary. Race predictions, personal records and heart rate zones have no history option and are not imported.
-Acceptance: Start, Pause and Resume work from Settings. A restart resumes without repeating finished windows. The routine sync and the nightly backup go first. Three failed windows in a row stop it with the reason shown. No secrets in logs or errors. Sign-off waits for Mark to run the import and test it.
+Acceptance: Start, Pause and Resume work from Settings. A restart resumes without repeating finished windows. The routine sync and the nightly backup go first. Three failed windows in a row inside one kind put that kind on needs attention and the import carries on with the others, ending as Complete with issues (D60). No secrets in logs or errors. Sign-off waits for Mark to run the import and test it.
 
 ## Phase 5: Google Calendar, scope to be agreed
 Scope and acceptance to be agreed before this phase starts. Candidates: busy time for the readings summary, mirrored planned workouts on a "Pulse Training" calendar (proposals only). See docs/INTEGRATIONS.md.

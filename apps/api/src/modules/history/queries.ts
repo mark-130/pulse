@@ -5,6 +5,7 @@ import type { Db } from "../../db/index.js";
 import { activity, backfillProgress, dailyReading, garminSnapshot, vo2maxPoint } from "../../db/schema.js";
 import { READING_KINDS } from "../ai/readings.js";
 import { doneDays, loadState, type Live } from "./engine.js";
+import { RANGE_LIMITS } from "./kinds.js";
 
 export interface Point {
   date: string;
@@ -59,6 +60,8 @@ export function getSeries(db: Db, now: Date, days: number, kinds?: string[]): Hi
 
 // ---------------------------------------------------------------- import status
 const COST_START = 30;
+/** Plain words for the card when a kind needs attention and Garmin gave no more specific reason. */
+const NEEDS_ATTENTION = "Some windows failed.";
 
 export function getHistoryStatus(db: Db, now: Date, days: number, live: Live): HistoryStatus {
   const st = loadState(db, days);
@@ -70,15 +73,28 @@ export function getHistoryStatus(db: Db, now: Date, days: number, live: Live): H
   let remainingCost = 0;
   let windowsLeft = 0;
   const failedWindows: HistoryStatus["failedWindows"] = [];
+  const running = st.state === "running";
   const kinds = HISTORY_KINDS.map((k) => {
     const done = doneDays(db, k.id, from, to);
     const failed = rows.filter((r) => r.kind === k.id && r.status === "failed" && dayCount(r.windowStart, r.windowEnd).some((d) => !done.has(d)));
     for (const f of failed) failedWindows.push({ kind: k.id, label: k.label, from: f.windowStart, to: f.windowEnd, reason: f.reason ?? "Failed." });
-    const cost = k.perDay ? 1 : 1 / COST_START;
+    const winDays = k.perDay ? 14 : (RANGE_LIMITS[k.id]?.start ?? COST_START);
+    const cost = k.perDay ? 1 : 1 / winDays;
     doneCost += done.size * cost;
     remainingCost += (total - done.size) * cost;
-    windowsLeft += Math.ceil((total - done.size) / (k.perDay ? 14 : COST_START));
-    return { id: k.id, label: k.label, done: done.size, total, failed: failed.length };
+    windowsLeft += Math.ceil((total - done.size) / winDays);
+    // Done, running, needs attention (the kind tripped its three failures, or the run is over and windows still failed) or waiting its turn.
+    const flagged = st.attention[k.id] ?? null;
+    const lastFailed = [...failed].sort((a, b) => b.windowEnd.localeCompare(a.windowEnd))[0]?.reason ?? null;
+    let state: HistoryStatus["kinds"][number]["state"];
+    let reason: string | null = null;
+    if (done.size >= total) state = "done";
+    else if (flagged || (!running && failed.length > 0)) {
+      state = "attention";
+      reason = flagged ?? lastFailed ?? NEEDS_ATTENTION;
+    } else if (running && live.current === k.label) state = "running";
+    else state = "waiting";
+    return { id: k.id, label: k.label, done: done.size, total, failed: failed.length, state, reason };
   });
   failedWindows.sort((a, b) => b.to.localeCompare(a.to));
 
@@ -87,7 +103,6 @@ export function getHistoryStatus(db: Db, now: Date, days: number, live: Live): H
     const msPerCost = st.activeMs / doneCost;
     estimatedFinish = new Date(now.getTime() + remainingCost * msPerCost + windowsLeft * 2_000).toISOString();
   }
-  const anyFailed = failedWindows.length > 0;
   return {
     state: st.state,
     days: total,
@@ -101,7 +116,6 @@ export function getHistoryStatus(db: Db, now: Date, days: number, live: Live): H
     waiting: st.state === "running" && live.waiting,
     kinds,
     failedWindows: failedWindows.slice(0, 30),
-    incomplete: st.state === "complete" && anyFailed,
     notImported: [...HISTORY_NOT_IMPORTED],
   };
 }

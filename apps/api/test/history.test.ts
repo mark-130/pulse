@@ -6,7 +6,8 @@ import { HISTORY_KINDS, historySeriesSchema, historyStatusSchema, yearOnYearSche
 import { activity, backfillProgress, dailyReading, garminSnapshot, vo2maxPoint } from "../src/db/schema.js";
 import { GARMIN_READ_TOOLS, type GarminConnector, type GarminReadTool, type GarminResult } from "../src/modules/garmin/client.js";
 import { GARMIN_WRITE_TOOLS } from "../src/modules/proposals/executors/garmin.js";
-import { FAILED_WINDOWS_TO_STOP, PER_DAY_CONCURRENCY, RATE_BASE_MS, WINDOW_PAUSE_MS, doneDays, loadState, nextWindow, saveState } from "../src/modules/history/engine.js";
+import { FAILED_WINDOWS_PER_KIND, PER_DAY_CONCURRENCY, RATE_BASE_MS, WINDOW_PAUSE_MS, doneDays, loadState, nextWindow, runOrder, saveState } from "../src/modules/history/engine.js";
+import { RANGE_LIMITS, RANGE_SPECS, classifyText } from "../src/modules/history/kinds.js";
 import { shouldYield } from "../src/modules/history/module.js";
 import { getHistorySummary, getYearOnYear, monthly, withAverage7, yearAgo } from "../src/modules/history/queries.js";
 import { runTool } from "../src/modules/ai/tools.js";
@@ -111,18 +112,21 @@ describe("history import: what it may call", () => {
 });
 
 describe("history import: windows", () => {
-  it("starts range tools at 30 days, never goes above a tool's limit, and uses 14 day windows for per-day tools two calls at a time", async () => {
+  it("uses the window size from the one limits table for each range tool, never above its limit, and 14 day windows for per-day tools two calls at a time", async () => {
     const s = await setup({ days: 730 });
     const st = await s.run();
     expect(st.state).toBe("complete");
     const sizes = (tool: string) => s.g.calls.filter((c) => c.tool === tool).map((c) => Math.round((Date.parse(`${c.args.end_date}T12:00:00Z`) - Date.parse(`${c.args.start_date}T12:00:00Z`)) / 86_400_000) + 1);
-    for (const tool of ["get_sleep_summary_range", "get_body_battery", "get_vo2max_trend", "get_endurance_score", "get_hill_score", "get_lactate_threshold"]) {
+    const byTool: Record<string, string> = { get_sleep_summary_range: "sleep", get_hrv_trend: "hrv", get_body_battery: "body_battery", get_vo2max_trend: "vo2max", get_endurance_score: "endurance", get_hill_score: "hill", get_lactate_threshold: "lactate" };
+    for (const [tool, id] of Object.entries(byTool)) {
       const sz = sizes(tool);
-      expect(sz[0], tool).toBe(30);
-      expect(Math.max(...sz), tool).toBeLessThanOrEqual(90);
+      expect(sz[0], tool).toBe(RANGE_LIMITS[id]?.start);
+      expect(Math.max(...sz), tool).toBeLessThanOrEqual(RANGE_LIMITS[id]?.max ?? 0);
     }
+    // Where the tool's description gives no limit the window is fixed at 14 days and never grows.
+    for (const tool of ["get_body_battery", "get_endurance_score", "get_hill_score", "get_lactate_threshold"]) expect(Math.max(...sizes(tool)), tool).toBeLessThanOrEqual(14);
     expect(Math.max(...sizes("get_hrv_trend"))).toBeLessThanOrEqual(30); // HRV takes 30 at most
-    expect(Math.max(...sizes("get_sleep_summary_range"))).toBeGreaterThan(30); // it grows after successes
+    expect(Math.max(...sizes("get_sleep_summary_range"))).toBeGreaterThan(30); // a documented limit of 90: it grows after successes
     // Per-day tools: one call per day, in 14 day windows, never more than two at once.
     expect(s.g.calls.filter((c) => c.tool === "get_rhr_day")).toHaveLength(730);
     expect(s.g.calls.filter((c) => c.tool === "get_training_readiness")).toHaveLength(730);
@@ -140,10 +144,10 @@ describe("history import: windows", () => {
     for (const k of status.kinds) expect(k).toMatchObject({ done: 730, total: 730, failed: 0 });
     const calls = new Map<string, number>();
     for (const c of s.g.calls) calls.set(c.tool, (calls.get(c.tool) ?? 0) + 1);
-    // Range kinds make tens of calls, the two per-day kinds 730 each: about 1,600 calls in all.
+    // Range kinds make tens of calls (the four with no stated limit use 14 day windows, D60), the two per-day kinds 730 each: about 1,730 calls in all.
     const total = s.g.calls.length;
-    expect(total).toBeGreaterThan(1500);
-    expect(total).toBeLessThan(1700);
+    expect(total).toBeGreaterThan(1650);
+    expect(total).toBeLessThan(1800);
     const first = s.g.calls.find((c) => c.tool === "get_sleep_summary_range");
     expect(first?.args.end_date).toBe(TODAY); // newest first
   }, 60_000);
@@ -200,9 +204,8 @@ describe("history import: failures", () => {
   it("a window that times out again at half size is marked failed with a reason, and the import carries on", async () => {
     const s = await setup({ days: 30, handler: (tool) => (tool === "get_hrv_trend" ? msg("Read timed out") : undefined) });
     const st = await s.run();
-    expect(st.state).toBe("complete");
-    expect(st.incomplete).toBe(true);
-    expect(st.kinds.find((k) => k.id === "hrv")).toMatchObject({ done: 0, failed: 2 });
+    expect(st.state).toBe("complete_with_issues");
+    expect(st.kinds.find((k) => k.id === "hrv")).toMatchObject({ done: 0, failed: 2, state: "attention", reason: "Garmin did not answer in time." });
     expect(st.failedWindows.map((w) => w.kind)).toEqual(["hrv", "hrv"]);
     expect(st.failedWindows[0]?.reason).toBe("Garmin did not answer in time.");
     // Other kinds were not held up.
@@ -246,24 +249,31 @@ describe("history import: failures", () => {
     expect(g.calls.filter((c) => c.tool === "get_activities_by_date")).toHaveLength(activityCalls); // the finished kind was not fetched again
   });
 
-  it("three failed windows in a row stop the import, with the reason shown, and a success in between resets the count", async () => {
+  it("three failed windows in a row inside one kind put that kind on needs attention, and the other kinds carry on (D60)", async () => {
     const s = await setup({ days: 120, handler: (tool) => (tool === "get_sleep_summary_range" ? msg("Error retrieving sleep: boom") : undefined) });
     const st = await s.run();
-    expect(FAILED_WINDOWS_TO_STOP).toBe(3);
-    expect(st.state).toBe("stopped");
-    expect(st.reason).toMatch(/^Three windows in a row failed\. Last: Sleep, /);
-    expect(st.reason).toContain("Error retrieving sleep: boom");
-    expect(st.failedWindows).toHaveLength(3);
-    expect(st.failedWindows.every((w) => w.kind === "sleep")).toBe(true);
-    // Later kinds never started.
-    expect(s.g.calls.some((c) => c.tool === "get_rhr_day")).toBe(false);
+    expect(FAILED_WINDOWS_PER_KIND).toBe(3);
+    expect(st.state).toBe("complete_with_issues");
+    expect(st.reason).toBe("Some windows failed: Sleep. Start again retries only those.");
+    const sleep = st.kinds.find((k) => k.id === "sleep");
+    expect(sleep).toMatchObject({ state: "attention", done: 0, failed: 3 });
+    expect(sleep?.reason).toContain("Error retrieving sleep: boom");
+    expect(st.failedWindows.filter((w) => w.kind === "sleep")).toHaveLength(3);
+    // The fourth window was not attempted: the kind was skipped after the third failure.
+    expect(s.g.calls.filter((c) => c.tool === "get_sleep_summary_range")).toHaveLength(3);
+    // Every other kind ran to the end.
+    for (const k of st.kinds.filter((x) => x.id !== "sleep")) expect(k, k.id).toMatchObject({ done: 120, state: "done" });
+    expect(s.g.calls.some((c) => c.tool === "get_rhr_day")).toBe(true);
+    expect(s.g.calls.some((c) => c.tool === "get_lactate_threshold")).toBe(true);
+  });
 
-    // Two failures, then a success, then two more: never three in a row, so it finishes.
+  it("a success in between resets the count, so two failures twice never need attention, but the failed windows still show", async () => {
     let n = 0;
-    const s2 = await setup({ days: 150, handler: (tool) => (tool === "get_hrv_trend" ? (++n % 3 === 0 ? undefined : msg("Error retrieving hrv: boom")) : undefined) });
-    const st2 = await s2.run();
-    expect(st2.state).toBe("complete");
-    expect(st2.incomplete).toBe(true);
+    const s = await setup({ days: 150, handler: (tool) => (tool === "get_hrv_trend" ? (++n % 3 === 0 ? undefined : msg("Error retrieving hrv: boom")) : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("complete_with_issues");
+    expect(Object.keys(loadState(s.t.handle.db, 150).attention)).toEqual([]);
+    expect(st.kinds.find((k) => k.id === "hrv")?.failed).toBeGreaterThan(0);
   });
 
   it("an unreachable Garmin server stops the import with a plain reason, not a raw error", async () => {
@@ -422,6 +432,171 @@ describe("history import: no secrets", () => {
     expect(all).not.toMatch(/garmin-mcp\.example/);
     expect(all).not.toContain(`Bearer ${FAKE_KEY}`);
     expect(logs.length).toBeGreaterThan(0);
+  });
+});
+
+const TOO_BIG = "Error retrieving body battery data: Garmin rejected the request (HTTP 400): HTTP error: API Error 400 - requested date range is too big. Check the request.";
+const spanOf = (c: { args: Record<string, unknown> }) => Math.round((Date.parse(`${c.args.end_date}T12:00:00Z`) - Date.parse(`${c.args.start_date}T12:00:00Z`)) / 86_400_000) + 1;
+
+describe("history import: window sizes and range too big (D60)", () => {
+  it("every range tool's window comes from one table, within the limit its own description states", () => {
+    // Stated in the Garmin MCP tool descriptions: sleep range 90 nights, HRV trend 30 days, VO2 max trend 90 days.
+    expect(RANGE_LIMITS.sleep).toMatchObject({ max: 90, documented: true });
+    expect(RANGE_LIMITS.hrv).toMatchObject({ max: 30, documented: true });
+    expect(RANGE_LIMITS.vo2max).toMatchObject({ max: 90, documented: true });
+    // No limit is stated for these. Body battery was rejected at 60 days and verified at 14, so all four are fixed at 14.
+    for (const id of ["body_battery", "endurance", "hill", "lactate"]) expect(RANGE_LIMITS[id], id).toMatchObject({ start: 14, max: 14, documented: false });
+    for (const [id, spec] of Object.entries(RANGE_SPECS)) {
+      expect(spec?.start, id).toBe(RANGE_LIMITS[id]?.start);
+      expect(spec?.limit, id).toBe(RANGE_LIMITS[id]?.max);
+      expect(spec?.start ?? 0, id).toBeLessThanOrEqual(spec?.limit ?? 0);
+    }
+  });
+
+  it("reads Garmin's HTTP 400 range answer as a window size problem, in plain words, and keeps auth and unreachable apart", () => {
+    expect(classifyText(TOO_BIG)).toMatchObject({ kind: "range_too_big", message: "Garmin rejected the date range as too long." });
+    expect(classifyText("HTTP 401 Unauthorized")).toMatchObject({ kind: "auth", message: "Garmin refused the login. Check the Garmin connection." });
+    expect(classifyText("fetch failed")).toMatchObject({ kind: "unreachable", message: "Could not reach the Garmin server." });
+    expect(classifyText("Error retrieving sleep: boom").kind).toBe("failed");
+  });
+
+  it("a 400 range too big retries at half size, is not counted as a failed window, and records the size that worked", async () => {
+    // Pretend the real limit is 7 days.
+    const s = await setup({ days: 60, handler: (tool, a) => (tool === "get_body_battery" && spanOf({ args: a }) > 7 ? msg(TOO_BIG) : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("complete");
+    expect(st.failedWindows).toEqual([]);
+    const spans = s.g.calls.filter((c) => c.tool === "get_body_battery").map(spanOf);
+    expect(spans.slice(0, 3)).toEqual([14, 7, 7]); // too big, then the two halves, newest first
+    expect(spans.slice(3).every((n) => n <= 7)).toBe(true); // never 14 again
+    expect(loadState(s.t.handle.db, 60).windowSizes).toEqual({ body_battery: 7 });
+    expect(s.readings("body_battery")).toHaveLength(60);
+    expect(st.kinds.find((k) => k.id === "body_battery")).toMatchObject({ done: 60, failed: 0, state: "done" });
+  });
+
+  it("a remembered size is used from the first call of the next run", async () => {
+    const s = await setup({ days: 30 });
+    saveState(s.t.handle.db, { windowSizes: { body_battery: 5 } }, 30);
+    await s.run();
+    const spans = s.g.calls.filter((c) => c.tool === "get_body_battery").map(spanOf);
+    expect(spans[0]).toBe(5);
+    expect(Math.max(...spans)).toBe(5);
+  });
+
+  it("when even single days are rejected it gives up on that window with a plain reason, in a bounded number of calls", async () => {
+    const s = await setup({ days: 30, handler: (tool) => (tool === "get_body_battery" ? msg(TOO_BIG) : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("complete_with_issues");
+    expect(st.failedWindows[0]?.reason).toBe("Garmin rejected the date range as too long.");
+    expect(s.g.calls.filter((c) => c.tool === "get_body_battery").length).toBeLessThan(60);
+    expect(st.kinds.find((k) => k.id === "body_battery")?.state).toBe("attention");
+  });
+});
+
+describe("history import: one kind failing does not stop the others (D60)", () => {
+  it("runs the kinds not yet imported first and body battery last", async () => {
+    const s = await setup({ days: 30 });
+    await s.run();
+    const order = s.g.calls.map((c) => c.tool);
+    const last = (tool: string) => order.lastIndexOf(tool);
+    const first = (tool: string) => order.indexOf(tool);
+    expect(first("get_body_battery")).toBeGreaterThan(last("get_lactate_threshold"));
+    expect(first("get_body_battery")).toBeGreaterThan(last("get_vo2max_trend"));
+  });
+
+  it("with the first five kinds done and body battery partly failed, VO2 max, endurance, hill and lactate run next, then body battery", async () => {
+    const s = await setup({ days: 60 });
+    const db = s.t.handle.db;
+    const to = TODAY;
+    const from = addDays(TODAY, -59);
+    for (const k of ["activities", "sleep", "hrv", "rhr", "readiness"]) db.insert(backfillProgress).values({ kind: k, windowStart: from, windowEnd: to, status: "done", rows: 60, reason: null, updatedAt: NOW.toISOString() }).run();
+    db.insert(backfillProgress).values({ kind: "body_battery", windowStart: addDays(TODAY, -29), windowEnd: to, status: "done", rows: 30, reason: null, updatedAt: NOW.toISOString() }).run();
+    db.insert(backfillProgress).values({ kind: "body_battery", windowStart: from, windowEnd: addDays(TODAY, -30), status: "failed", rows: 0, reason: "x", updatedAt: NOW.toISOString() }).run();
+    expect(runOrder(db, from, to).filter((k) => !["activities", "sleep", "hrv", "rhr", "readiness"].includes(k))).toEqual(["vo2max", "endurance", "hill", "lactate", "body_battery"]);
+    const st = await s.run();
+    expect(st.state).toBe("complete");
+    const tools = s.g.calls.map((c) => c.tool);
+    expect(tools.indexOf("get_body_battery")).toBeGreaterThan(tools.lastIndexOf("get_lactate_threshold"));
+    // The finished kinds were not fetched again.
+    expect(tools).not.toContain("get_activities_by_date");
+    expect(tools).not.toContain("get_rhr_day");
+  });
+
+  it("body battery failing three windows does not stop VO2 max, endurance, hill or lactate, and the final state says so", async () => {
+    const s = await setup({ days: 60, handler: (tool) => (tool === "get_body_battery" ? msg("Error retrieving body battery data: boom") : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("complete_with_issues");
+    for (const id of ["vo2max", "endurance", "hill", "lactate"]) expect(st.kinds.find((k) => k.id === id), id).toMatchObject({ done: 60, state: "done" });
+    const bb = st.kinds.find((k) => k.id === "body_battery");
+    expect(bb).toMatchObject({ state: "attention", done: 0 });
+    expect(bb?.reason).toContain("boom");
+  });
+
+  it("Start again retries only the failed windows once each, plus the ones not yet attempted, and finishes", async () => {
+    let broken = true;
+    const s = await setup({ days: 120, handler: (tool) => (tool === "get_sleep_summary_range" && broken ? msg("Error retrieving sleep: boom") : undefined) });
+    expect((await s.run()).state).toBe("complete_with_issues");
+    const before = s.g.calls.length;
+    broken = false;
+    const st = await s.run();
+    expect(st.state).toBe("complete");
+    const second = s.g.calls.slice(before);
+    // Only sleep was asked for. Everything else is finished and was not fetched again.
+    expect(new Set(second.map((c) => c.tool))).toEqual(new Set(["get_sleep_summary_range"]));
+    // Each day once: the three failed windows and the one never attempted cover 120 days with no overlap.
+    const covered = second.flatMap((c) => days(String(c.args.start_date), String(c.args.end_date)));
+    expect(covered).toHaveLength(120);
+    expect(new Set(covered).size).toBe(120);
+    expect(st.kinds.find((k) => k.id === "sleep")).toMatchObject({ done: 120, state: "done", failed: 0 });
+    expect(st.failedWindows).toEqual([]);
+    expect(loadState(s.t.handle.db, 120).attention).toEqual({});
+  });
+
+  it("an empty window counts as complete", async () => {
+    const s = await setup({ days: 30, handler: (tool) => (tool === "get_body_battery" || tool === "get_hill_score" ? msg("No data found for this range") : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("complete");
+    expect(st.kinds.find((k) => k.id === "body_battery")).toMatchObject({ done: 30, failed: 0, state: "done" });
+    expect(st.kinds.find((k) => k.id === "hill")).toMatchObject({ done: 30, state: "done" });
+    expect(s.readings("body_battery")).toHaveLength(0);
+  });
+});
+
+describe("history import: what still stops everything (D60)", () => {
+  it("a failed login stops the whole import at once, whichever kind it happens in, with a plain reason", async () => {
+    const s = await setup({ days: 30, handler: (tool) => (tool === "get_vo2max_trend" ? msg("Error: HTTP 401 Unauthorized") : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("stopped");
+    expect(st.reason).toBe("Garmin refused the login. Check the Garmin connection.");
+    // Nothing after it ran.
+    expect(s.g.calls.some((c) => c.tool === "get_endurance_score" || c.tool === "get_body_battery")).toBe(false);
+  });
+
+  it("a Garmin that stops answering mid-run stops the whole import, not one kind", async () => {
+    const s = await setup({ days: 30, handler: (tool) => { if (tool === "get_endurance_score") throw new TypeError("fetch failed"); return undefined; } });
+    const st = await s.run();
+    expect(st.state).toBe("stopped");
+    expect(st.reason).toBe("Could not reach the Garmin server.");
+    expect(s.g.calls.some((c) => c.tool === "get_body_battery")).toBe(false);
+  });
+
+  it("a rate limit still pauses rather than failing a kind", async () => {
+    let n = 0;
+    const s = await setup({ days: 30, rate: { baseMs: 1, pauseMs: 3_600_000 }, handler: (tool) => (tool === "get_vo2max_trend" && ++n <= 3 ? msg("429 rate limit exceeded") : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("paused");
+    expect(Object.keys(loadState(s.t.handle.db, 30).attention)).toEqual([]);
+  });
+
+  it("secrets never reach a reason, the status or a log line, including from a login failure", async () => {
+    const logs: string[] = [];
+    const s = await setup({ days: 30, logs, handler: (tool) => (tool === "get_vo2max_trend" ? msg(`HTTP 401 Unauthorized calling https://garmin-mcp.example/mcp?token=${FAKE_KEY} Authorization: Bearer ${FAKE_KEY}`) : undefined) });
+    const st = await s.run();
+    expect(st.state).toBe("stopped");
+    const all = [JSON.stringify(st), JSON.stringify(s.progress()), ...logs, await (await s.t.get("/api/history")).text()].join("\n");
+    expect(all).not.toContain(FAKE_KEY);
+    expect(all).not.toMatch(/garmin-mcp\.example/);
+    expect(all).not.toContain("Bearer");
   });
 });
 

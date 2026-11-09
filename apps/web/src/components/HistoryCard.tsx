@@ -1,16 +1,23 @@
 import type { HistoryStatus } from "@pulse/shared";
 import { formatDate } from "@/lib/format";
-import { finishText, periodText, primaryAction, progressText, stateLine } from "@/lib/history";
+import { TriangleAlert } from "lucide-react";
+import { finishText, issuesLine, kindStateText, periodText, primaryAction, progressText, stateLine } from "@/lib/history";
 import { useHistory, useHistoryAction } from "@/lib/queries";
 import { Button, Card } from "./ui";
 
 function Details({ s }: { s: HistoryStatus }) {
-  if (s.failedWindows.length === 0 && !(s.reason && (s.state === "stopped" || s.state === "paused"))) return null;
+  const attention = s.kinds.filter((k) => k.state === "attention");
+  if (s.failedWindows.length === 0 && attention.length === 0 && !(s.reason && (s.state === "stopped" || s.state === "paused"))) return null;
   return (
     <details className="min-w-0">
       <summary className="t-secondary flex min-h-11 cursor-pointer items-center">Details</summary>
       <div className="space-y-2 rounded-2xl bg-surface-2 p-3 text-[13px] [overflow-wrap:anywhere]">
-        {s.reason && <p className="font-semibold">{s.reason}</p>}
+        {s.reason && (s.state === "stopped" || s.state === "paused") && <p className="font-semibold">{s.reason}</p>}
+        {attention.length > 0 && (
+          <ul className="space-y-1">
+            {attention.map((k) => <li key={k.id}><span className="font-semibold">{k.label}:</span> {k.reason}</li>)}
+          </ul>
+        )}
         {s.failedWindows.length > 0 && (
           <ul className="space-y-1">
             {s.failedWindows.map((w) => <li key={`${w.kind}-${w.from}`}>{w.label}, {formatDate(w.from)} to {formatDate(w.to)}: {w.reason}</li>)}
@@ -37,6 +44,7 @@ export function HistoryView({ s, pending, onAction }: HistoryViewProps) {
         <p>Reads your Garmin history once, gently, so Trends can compare this year with last year. It reads from Garmin and never changes anything there.</p>
         <p className="t-secondary">Covers {s.days} days, {periodText(s.from, s.to)}. Race predictions, personal records and heart rate zones are not imported: Garmin keeps no history for them.</p>
         <p role="status" className="font-semibold">{stateLine(s)}</p>
+        {issuesLine(s) && <p className="t-secondary flex items-start gap-1"><TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-[color:var(--state-warn)]" />{issuesLine(s)}</p>}
         {finish && <p className="t-secondary">{finish}</p>}
         {action && (
           <Button className="w-full sm:w-auto" disabled={pending} onClick={() => onAction(action.action)}>
@@ -48,7 +56,7 @@ export function HistoryView({ s, pending, onAction }: HistoryViewProps) {
             <li key={k.id} className="min-w-0">
               <p className="flex flex-wrap items-baseline justify-between gap-x-3">
                 <span>{progressText(k)}</span>
-                {k.failed > 0 && <span className="t-label">{k.failed} failed</span>}
+                <span className="t-label">{k.state === "attention" && <TriangleAlert aria-hidden className="mr-1 inline size-3.5 align-[-2px] text-[color:var(--state-warn)]" />}{kindStateText(k)}{k.failed > 0 ? `, ${k.failed} failed` : ""}</span>
               </p>
               <div className="mt-1 h-1.5 rounded-full bg-surface-2" role="img" aria-label={`${k.label}: ${k.done} of ${k.total} days imported`}>
                 <div className="h-1.5 rounded-full" style={{ width: `${k.total ? Math.min(100, Math.round((k.done / k.total) * 100)) : 0}%`, background: "var(--ai-gradient)" }} />
