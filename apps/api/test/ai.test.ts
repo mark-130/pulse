@@ -77,10 +77,27 @@ describe("readings summary fixtures (TRAINING.md defaults, scoring unchanged)", 
     expect(lower.points).toBeLessThan(7); // the lower of the two original outcomes, not the lowest
   });
 
-  it("a borderline day with a long or hard session scored the same way as before: the middle band moves to the lowest", () => {
+  it("the label depends on the readings only: no scheduled workout, long, hard, easy or none, changes it (D49)", () => {
     const borderline: Partial<ReadingsInput> = { sleep: { date: "2026-11-07", score: 45 }, readiness: { date: "2026-11-07", score: 50, level: "LOW" } };
-    expect(v({ ...borderline, planned: { name: "6x800 intervals", durationS: 3600 } }).state).toBe("low");
-    expect(v({ ...borderline, planned: { name: "50 minute easy run", durationS: 3000 } }).state).toBe("mixed");
+    const planned = [
+      { name: "6x800 intervals", durationS: 3600 },
+      { name: "1h50 Long Run", durationS: 6600 },
+      { name: "Tempo 90 minutes", durationS: 5400 },
+      { name: "50 minute easy run", durationS: 3000 },
+      { name: "Race", durationS: null },
+      null,
+    ];
+    const results = planned.map((p) => v({ ...borderline, planned: p }));
+    for (const r of results) {
+      expect(r.state).toBe("mixed"); // 3 points from two borderline readings: mixed, whatever is scheduled
+      expect(r.points).toBe(3);
+      expect(r.label).toBe("Readings: mixed");
+    }
+    // The scheduled workout is only a last line of facts.
+    expect(results[0]?.lines.at(-1)).toBe("Scheduled today in Garmin: 6x800 intervals, 60 min.");
+    expect(results[1]?.lines.at(-1)).toBe("Scheduled today in Garmin: 1h50 Long Run, 110 min.");
+    expect(results[5]?.lines.at(-1)).toBe("Nothing is scheduled in Garmin today.");
+    expect(results[0]?.signals).toEqual(results[3]?.signals);
   });
 
   it("raised resting heart rate counts: 8 bpm over the average is poor, so the label is mixed", () => {

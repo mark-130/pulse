@@ -1,6 +1,5 @@
 import { HEALTH_NOTE, READINGS_LABELS, type ReadingsState, type ReadingsSummary, type Signal } from "@pulse/shared";
 import { addDays } from "../../dates.js";
-import { DEMANDING_NAME } from "../training.js";
 
 /**
  * The daily readings summary (D48). Plain code from the defaults in docs/TRAINING.md (D35). It turns Garmin's readings
@@ -38,7 +37,6 @@ export const THRESHOLDS = {
   /** A signal dated before yesterday is too old to use. */
   maxAgeDays: 1,
   minKnownSignals: 3,
-  demandingMinutes: 90,
   /** At least this many earlier days are needed to quote a recent average. */
   minAverageDays: 3,
   /** Within this share of the average counts as in line with it. */
@@ -125,15 +123,13 @@ export function computeReadingsSummary(i: ReadingsInput): ReadingsSummary {
   const poor = known.filter((s) => s.status === "poor").length;
   const points = known.reduce((n, s) => n + (s.status === "poor" ? 2 : s.status === "caution" ? 1 : 0), 0);
   const planned = i.planned;
-  const demanding = planned !== null && ((planned.durationS ?? 0) >= THRESHOLDS.demandingMinutes * 60 || DEMANDING_NAME.test(planned.name));
 
-  // The scoring is the original one, unchanged. Its two lowest outcomes were always treated alike, so they are one label.
+  // The label depends on the readings only (D49). The scheduled workout is a last line and never changes it.
+  // The two lowest outcomes of the original scoring were always treated alike, so they are one label.
   let tier: "strong" | "mixed" | "low";
   if (poor >= 2 || points >= 4) tier = "low";
   else if (points >= 2 || poor >= 1) tier = "mixed";
   else tier = "strong";
-  // A long or hard scheduled session on a day that already scores 3 or more points moves the middle tier to the lowest.
-  if (tier === "mixed" && demanding && points >= 3) tier = "low";
   const state: ReadingsState = known.length < THRESHOLDS.minKnownSignals ? "unknown" : tier;
 
   // Always in the same order, so the list reads as facts and not as a ranking.

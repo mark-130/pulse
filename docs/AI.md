@@ -8,7 +8,7 @@
 - Not medical advice. Illness, pain or injury: rest and see a professional. That fixed reply is written in code and is the one place the app tells him to rest, for safety.
 
 ## Build status
-Phase 4a (built): daily briefing, Ask with read tools, readings summary (in code, first built as a verdict and reworked in D48). Phase 4b (built, D42, D43): race lead-up (facts, no AI), weekly review, post-run debrief, and the propose tools, which are off. Not built: briefing by ntfy (ntfy is off, so the briefing is shown in the app only), forecast, Google Calendar tools. See D36, D42 and D43.
+Phase 4a (built): daily briefing, Ask with read tools, readings summary (in code, first built as a verdict and reworked in D48 and D49). Phase 4b (built, D42, D43): race lead-up (facts, no AI), weekly review, post-run debrief, and the propose tools, which are off. Not built: briefing by ntfy (ntfy is off, so the briefing is shown in the app only), forecast, Google Calendar tools. See D36, D42 and D43.
 
 ## Features
 1. Daily briefing at 06:30 Europe/London, and once on demand if today's is missing. It opens with a greeting chosen in code by London time (before 12:00 morning, until 17:00 afternoon, otherwise evening), and a wrong greeting at the start of the text is replaced: the readings (Garmin readiness, sleep, HRV, resting heart rate, body battery) with dates, what is scheduled and recorded today, the next race with days to go, race warnings as facts, and which data groups are stale. One call with pre-assembled context, no tools, stored in the briefing table. It makes no recommendation.

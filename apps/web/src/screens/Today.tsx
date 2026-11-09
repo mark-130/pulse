@@ -1,7 +1,7 @@
 import { sevenDayRow, type DayKind } from "@/lib/races";
 import { SportIcon } from "@/components/SportIcon";
 import { KindNote } from "@/components/KindNote";
-import { Activity, ArrowDown, Battery, Check, CircleHelp, Heart, Minus, Moon, Sparkles, TriangleAlert } from "lucide-react";
+import { Activity, ArrowDown, Battery, CalendarDays, Check, CircleHelp, Gauge as GaugeIcon, Heart, Minus, Moon, Sparkles, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { AI_BUDGET_TEXT, AI_OFF_TEXT, type RaceItem, type ReadingsSummary, type TodayResponse } from "@pulse/shared";
@@ -9,14 +9,16 @@ import { AiChip, Chip, PriorityChip } from "@/components/Chip";
 import { Orb } from "@/components/Orb";
 import { Button } from "@/components/ui";
 import { useDebriefBlocks } from "@/components/Debriefs";
-import { Vo2Card } from "@/components/Vo2Card";
+import { DaySpark } from "@/components/DaySpark";
+import { Sparkline } from "@/components/Vo2Card";
 import { ZonesCard } from "@/components/ZonesCard";
 import { FailureDetails } from "@/components/FailureDetails";
 import { Prose } from "@/components/Prose";
 import { formatClock, formatDate, formatDayDate, formatDurationMin, formatKm, formatRaceKm, formatRaceTime, formatTime, humanise, plural } from "@/lib/format";
 import { useBriefingFlow } from "@/lib/briefing";
-import { useToday } from "@/lib/queries";
-import { dateLine, greetingFor } from "@/lib/today";
+import { useToday, useVo2, useWeek } from "@/lib/queries";
+import { ageText } from "@/lib/stale";
+import { dateLine, greetingFor, weekTile } from "@/lib/today";
 import { widgets } from "@/modules/registry";
 
 const prompts = ["How did I sleep?", "What is my next race?", "What do my readings say today?"];
@@ -192,28 +194,79 @@ function Race({ data }: { data: TodayResponse }) {
   );
 }
 
-function Tile({ label, icon: Icon, value, unit, status, pct, from }: { label: string; icon: typeof Moon; value: ReactNode; unit?: string; status: string; pct: number | null; from: string | null }) {
+function TileBody({ label, icon: Icon, value, unit, visual, caption, note }: { label: string; icon: typeof Moon; value: ReactNode; unit?: string; visual: ReactNode; caption: string; note?: ReactNode }) {
   return (
-    <section className="card" aria-label={label}>
+    <>
       <p className="t-label flex items-center gap-1"><Icon aria-hidden className="size-3.5" />{label}</p>
       <p className="font-display my-1 text-[22px] font-semibold">{value}{unit && <span className="t-secondary ml-1 font-sans text-[13px] font-normal">{unit}</span>}</p>
-      <Bar pct={pct} />
-      <p className="t-label mt-1">{status}{from ? `, from ${formatDate(from)}` : ""}</p>
+      {visual}
+      <p className="t-label mt-1 [overflow-wrap:anywhere]">{caption}</p>
+      {note}
+    </>
+  );
+}
+
+function Tile({ label, icon, value, unit, status, pct, from }: { label: string; icon: typeof Moon; value: ReactNode; unit?: string; status: string; pct: number | null; from: string | null }) {
+  return (
+    <section className="card min-w-0" aria-label={label}>
+      <TileBody label={label} icon={icon} value={value} unit={unit} visual={<Bar pct={pct} />} caption={`${status}${from ? `, from ${formatDate(from)}` : ""}`} />
     </section>
   );
 }
 
-function Metrics({ data }: { data: TodayResponse }) {
+/** A tile that opens another screen. The whole tile is the tap target, never under 44px. */
+function LinkTile({ to, aria, children }: { to: string; aria: string; children: ReactNode }) {
+  return <Link to={to} aria-label={aria} className="card block min-h-11 min-w-0">{children}</Link>;
+}
+
+/** VO2 max: the current value, the 30 day change worked out in code, a sparkline with carried-forward days lighter. Opens the chart on Trends. */
+export function Vo2Tile() {
+  const q = useVo2(30);
+  const v = q.data;
+  const c = v?.current ?? null;
+  const caption = q.isPending ? "Loading" : !c ? "No data yet" : `${v?.change30?.text ?? "No 30 day change yet"}, on ${formatDate(c.date)}${c.carriedForward ? ", carried forward" : ""}`;
+  const stale = v && (v.stale || v.lastError) && v.ageMinutes !== null ? <p className="t-label mt-1">Showing the last value Garmin gave, {ageText(v.ageMinutes)} old{v.lastError ? ", the latest update failed" : ""}.</p> : null;
+  return (
+    <LinkTile to="/trends#vo2max" aria={`VO2 max${c ? ` ${c.value.toFixed(1)}` : ""}. Open the chart on Trends.`}>
+      <TileBody label="VO2 max" icon={GaugeIcon} value={c ? c.value.toFixed(1) : "--"} unit={c ? "ml/kg/min" : undefined} visual={v && v.points.length >= 2 ? <Sparkline points={v.points} className="my-1 h-10 w-full" /> : <Bar pct={null} />} caption={caption} note={stale} />
+    </LinkTile>
+  );
+}
+
+/** This week: distance, minutes and runs from Monday to today, from the same totals as the Week screen. Opens Week. No target, no interpretation. */
+export function WeekTile() {
+  const q = useWeek(null);
+  const w = q.data;
+  const t = w ? weekTile(w) : null;
+  return (
+    <LinkTile to="/week" aria={t ? `This week, ${t.km} km, ${t.minutes} minutes, ${plural(t.runs, "run")}. Open Week.` : "This week. Open Week."}>
+      <TileBody
+        label="This week"
+        icon={CalendarDays}
+        value={t ? t.km : "--"}
+        unit={t ? "km" : undefined}
+        visual={t ? <DaySpark values={t.daily} label={`Daily running distance this week, Monday to today: ${t.daily.map((d) => (d === null ? "not yet" : `${d} km`)).join(", ")}`} className="my-1" /> : <Bar pct={null} />}
+        caption={q.isPending ? "Loading" : t ? `${t.minutes} min, ${plural(t.runs, "run")}, Monday to today` : q.isError ? "Could not load this week" : "No data yet"}
+        note={<KindNote group="activities" />}
+      />
+    </LinkTile>
+  );
+}
+
+export function Metrics({ data }: { data: TodayResponse }) {
   const { sleep, hrv, restingHr, bodyBattery } = data.metrics;
   const from = (d: string | undefined) => (d && d !== data.date ? d : null);
   // Bars compare each value with a reference Garmin gives us. They carry no figures of their own.
+  // Six tiles in a grid of 2 columns, then 3 from 900px: two or three full rows, so there is never an empty cell.
   return (
-    <div className="md:col-span-4">
-      <div className="grid grid-cols-2 gap-3">
+    <div className="md:col-span-6">
+      <div className="grid grid-cols-2 gap-3 min-[900px]:grid-cols-3" data-testid="reading-tiles">
         <Tile label="Sleep" icon={Moon} value={sleep?.score ?? "--"} unit="score" pct={sleep?.score ?? null} from={from(sleep?.date)} status={sleep ? `${humanise(sleep.qualifier)}${sleep.hours !== null ? `, ${sleep.hours.toFixed(1)} h` : ""}` : "No data yet"} />
         <Tile label="HRV" icon={Activity} value={hrv?.lastNightAvg ?? "--"} unit="ms" pct={hrv?.lastNightAvg != null && hrv.baselineUpper ? (hrv.lastNightAvg / hrv.baselineUpper) * 100 : null} from={from(hrv?.date)} status={hrv ? `${humanise(hrv.status)}${hrv.baselineLow !== null && hrv.baselineUpper !== null ? `, baseline ${hrv.baselineLow} to ${hrv.baselineUpper} ms` : ""}` : "No data yet"} />
         <Tile label="Resting HR" icon={Heart} value={restingHr?.bpm ?? "--"} unit="bpm" pct={restingHr?.bpm && restingHr.sevenDayAvg ? (restingHr.sevenDayAvg / restingHr.bpm) * 100 : null} from={from(restingHr?.date)} status={restingHr ? (restingHr.sevenDayAvg !== null ? `7 day average ${restingHr.sevenDayAvg} bpm` : "No average yet") : "No data yet"} />
         <Tile label="Body battery" icon={Battery} value={bodyBattery?.current ?? "--"} pct={bodyBattery?.current ?? null} from={from(bodyBattery?.date)} status={bodyBattery ? `Highest ${bodyBattery.highest ?? "--"}, lowest ${bodyBattery.lowest ?? "--"}` : "No data yet"} />
+        <Vo2Tile />
+        <WeekTile />
       </div>
       <Synced at={data.syncedAt} />
     </div>
@@ -266,7 +319,6 @@ export function Today() {
           <Race data={data} />
           <Metrics data={data} />
           <ZonesCard />
-          <Vo2Card />
         </>
       )}
 

@@ -57,7 +57,9 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - Readings card (4a, reworked in D48): the overline "Today's readings", an outlined pill with icon and text ("Readings: strong", "Readings: mixed", "Readings: low" or "Readings: not enough data"), Garmin's own readiness score large beside its gauge, then every reading as a short factual line (figure, date, direction against baseline or recent average, in a fixed order) with no advice wording, the illness note and the sync time. No disclosure: all lines show.
 - Session row: icon tile, overline, title, estimated duration, source, View button.
 - Race card: name, date and start time in the race's own time zone, countdown, a seven day row of circles (today outlined, race day filled accent), chips for priority, distance and goal, then a line for the following race. No taper chip or status line (D42).
-- Metric tiles, two columns: label, value, 4px gradient bar, status line.
+- Readings tiles (D50): six tiles in one grid that spans the full content width: 2 columns below 900px and 3 columns from 900px, never more than 3, so six tiles always make full rows (3 rows of 2, or 2 rows of 3) and leave no empty cell. Order: Sleep, HRV, Resting HR, Body battery, VO2 max, This week. Every tile has the same parts: icon and label, a large value with its unit, a small visual, and a caption. The four Garmin tiles show a 4px gradient bar and keep their last value with "from dd/mm/yyyy" when it is older than today.
+- VO2 max tile: the current value with "ml/kg/min", a thin 30 day sparkline with carried-forward days drawn lighter, and the caption "Up/Down/No change x.x over 30 days, on dd/mm/yyyy" from the same calculation as the Fitness tab. A stale or failed update keeps the last value and adds "Showing the last value Garmin gave, N old, the latest update failed." The whole tile is one tap target (at least 44px) that opens Trends on the VO2 max chart. There is no separate VO2 max card on Today any more, so it is not shown twice.
+- This week tile: distance in km, then "N min, N runs, Monday to today", from the same totals the Week screen shows, with a thin line of daily running distance over seven day slots that stops at today. No progress bar, no target, no interpretation. Stale activities add the quiet note "Activities are N old. Retrying automatically." and keep the values. The whole tile opens Week.
 - Proposals card: count, "Nothing is applied until you confirm.", Review button.
 
 ## Races screen (Phase 2)
@@ -98,7 +100,7 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - Heart rate zones card: the main display is Mark's Kotcha copy: five rows with Zone n and the Kotcha name, the range in bpm on the right ("up to 128 bpm", "129 to 143 bpm", zone 5 ending at max) and a thin bar under each on one shared scale. Under the rows, neutral lines for tops that differ ("Zone 1 top: Garmin 129, Kotcha 128"), which are not a warning, then "Your copy of Kotcha, saved dd/mm/yyyy hh:mm." (or "Starting values for your copy of Kotcha. Edit and save to make them yours."), an "Edit Kotcha zones" button, and a "Garmin zones" Details disclosure: Garmin's ranges, method, lactate threshold, max and resting heart rate, when the zones were first seen, and "Running uses your default profile" when there is no running profile.
 - Garmin change warning: a banner at the top of the card with an amber border, a warning icon and words: "Garmin changed your heart rate zones on dd/mm. Zone 2 floor 130 to 132. Update Kotcha, then confirm here." and one button, "Kotcha is up to date". It stays until Mark taps it. It does not come from a failed or stale fetch.
 - Edit sheet (the same native sheet as other dialogs): "Edit Kotcha zones", a line saying Kotcha owns the zones, five number fields labelled "Zone n Name, top (bpm)", live plain errors (whole numbers, ascending, zone 5 equal to the max), Save (an explicit tap) and Cancel.
-- VO2 max card: the current value large with "ml/kg/min on dd/mm/yyyy", "Up/Down/No change x.x over 30 days" from the first and last values, and a 30 day sparkline with carried-forward days drawn lighter. The whole card is one tap target that opens Trends on the VO2 max chart. No interpretation text.
+- VO2 max (the Today tile, D50, and the Fitness tab): the current value large with "ml/kg/min on dd/mm/yyyy", "Up/Down/No change x.x over 30 days" from the first and last values, and a 30 day sparkline with carried-forward days drawn lighter. On Today it is a tile in the readings grid. The whole tile is one tap target that opens Trends on the VO2 max chart. No interpretation text.
 - Trends, VO2 max chart: range buttons 4 weeks and 3 months, and 12 months once more than 100 days are stored, a line with carried-forward points drawn lighter, "Not imported yet before dd/mm/yyyy." when the range starts before the stored data, and a table.
 
 ## Race lead-up, weekly review and debrief (Phase 4b)
@@ -123,7 +125,7 @@ Sora 600 and 700 for headings and big numbers. DM Sans 400 to 700 for body. Self
 - Every AI-written block carries the sparkle icon and an "AI" chip.
 
 ## Today order
-Orb hero, briefing, prompt chips, readings, session, race, metrics, proposals. Module widgets register a card (1x1 or 2x1) into the grid after these. Reordering is a later feature.
+Orb hero, briefing, prompt chips, readings, session, race, the six readings tiles (full width), heart rate zones, proposals. Module widgets register a card (1x1 or 2x1) into the grid after these. Reordering is a later feature.
 
 ## Brand
 - Split-bar mark: a short dim bar above a longer gradient bar (a negative split).
