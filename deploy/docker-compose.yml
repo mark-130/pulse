@@ -4,6 +4,14 @@ services:
     container_name: pulse
     restart: unless-stopped
     user: "1000:1000"
+    # Hardening (D58). The app needs no capabilities, cannot gain privileges, and writes only to /data and /tmp.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
     ports:
       - "8210:8200"
     environment:
@@ -23,8 +31,8 @@ services:
       AI_PROPOSALS: "${AI_PROPOSALS:-off}"
       AI_MONTHLY_CAP_GBP: "${AI_MONTHLY_CAP_GBP:-5}"
       AI_USD_TO_GBP: "${AI_USD_TO_GBP:-0.78}"
-      # Updating from the app (D39). Off while WATCHTOWER_TOKEN is empty. The URL needs Watchtower on a network this app shares: see docs/INTEGRATIONS.md, Updating the app.
       PULSE_HISTORY_DAYS: "${PULSE_HISTORY_DAYS:-730}"
+      # Updating from the app (D39). Off while WATCHTOWER_TOKEN is empty. The URL needs Watchtower on a network this app shares: see docs/INTEGRATIONS.md, Updating the app.
       WATCHTOWER_URL: "${WATCHTOWER_URL:-http://watchtower:8080}"
       WATCHTOWER_TOKEN: "${WATCHTOWER_TOKEN:-}"
       NTFY_URL: "${NTFY_URL:-http://192.168.0.10:8090}"

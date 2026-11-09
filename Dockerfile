@@ -13,6 +13,12 @@ RUN pnpm build \
  && node -e "const v=require('./apps/api/package.json').dependencies['better-sqlite3'];require('fs').writeFileSync('/out/package.json',JSON.stringify({name:'pulse-runtime',private:true,type:'module',dependencies:{'better-sqlite3':v}}))"
 
 FROM node:22-alpine AS runtime
+# Runtime assumptions (D58), so the container can be locked down from deploy/docker-compose.yml:
+# - runs as uid 1000 and listens on 8200, so it needs no Linux capabilities and no privileges;
+# - writes only to /data (SQLite database, WAL files, backups made with VACUUM INTO), so the root filesystem can be read only;
+# - /tmp is a small scratch area for SQLite temp files, so it can be a tmpfs mounted noexec and nosuid;
+# - the healthcheck uses wget from the base image and talks to 127.0.0.1 only.
+# Watchtower recreates the container from its own configuration, so the flags in the compose file are kept on update.
 LABEL org.opencontainers.image.source="https://github.com/mark-130/pulse"
 ENV NODE_ENV=production PORT=8200 DATA_DIR=/data WEB_DIST=/app/web MIGRATIONS_DIR=/app/drizzle
 WORKDIR /app

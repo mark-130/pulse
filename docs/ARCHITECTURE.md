@@ -102,5 +102,6 @@ Built in Phase 3 (apps/api/src/modules/proposals). Phase 3 covers Garmin only, a
 - pino logging with token redaction. Secrets only in env or the encrypted secret table.
 - Nightly SQLite backup (VACUUM INTO /data/backups, keep 7). Check that existing Restic jobs cover /mnt/data/AppData/pulse.
 - Dockerfile: multi-stage on node:22-alpine, non-root, healthcheck on /api/health.
+- Container hardening (D58, deploy/docker-compose.yml): cap_drop ALL, security_opt no-new-privileges:true, read_only: true, and tmpfs /tmp:rw,noexec,nosuid,size=64m. The only writable path is /data (database, WAL files, backups). The network is unchanged: the homelab network, host port 8210 to 8200, and outbound access to Garmin MCP, Anthropic, ntfy and Watchtower, which cannot be filtered in Compose. The Dockerfile comment lists the runtime assumptions behind these flags.
 - CI permissions (D55): the workflow grants nothing by default. The check job has contents: read only. Only the image job also has packages: write. Every action is pinned to a full commit SHA with the version in a comment, and Dependabot proposes updates weekly.
 - CI: GitHub Actions on the existing self-hosted runner builds and pushes ghcr.io/mark-130/pulse:latest and :sha. Watchtower pulls updates.
