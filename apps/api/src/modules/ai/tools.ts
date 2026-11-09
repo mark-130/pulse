@@ -6,6 +6,7 @@ import { activity } from "../../db/schema.js";
 import { getToday, getTrends, getWeek } from "../garmin/queries.js";
 import { getHistorySummary } from "../history/queries.js";
 import { getLeadUp, getRaceView } from "../races/data.js";
+import { buildRaceWeather } from "../weather/data.js";
 import { getFitness } from "../fitness/data.js";
 import { getVo2View, getZonesView } from "../zones/data.js";
 import type { LlmTool } from "./llm.js";
@@ -19,6 +20,7 @@ export const ASK_TOOLS: LlmTool[] = [
   { name: "get_week", description: "One week Monday to Sunday: scheduled workouts, recorded activities and running totals. Defaults to this week.", input_schema: { type: "object", properties: { start: { type: "string", description: "Any date in the week, YYYY-MM-DD." } } } },
   { name: "list_races", description: "Races from the Garmin calendar with priority (only if Mark set it), type, distance, goal, data quality flags and clash warnings.", input_schema: { type: "object", properties: { include_past: { type: "boolean" } } } },
   { name: "get_race_leadup", description: "Facts about one race and the weeks before it, from Garmin: days to go, per week the number of scheduled workouts, scheduled minutes, the longest scheduled session, rest days and completed against scheduled so far, plus flags (priority not set, start time unverified, another race nearby, a workout on race day) and clash warnings. No suggestions.", input_schema: { type: "object", properties: { race: { type: "string", description: 'The word "next", or part of the race name.' } }, required: ["race"] } },
+  { name: "get_race_weather", description: "The cached Open-Meteo forecast for one race that is within 14 days: the place it was taken from, the hour of the start with temperature and feels like in C, wind speed and gusts in mph with a compass direction, chance and amount of rain and a plain weather description, a few hours around the start, and when it was fetched. Figures only. A race further away has no forecast yet.", input_schema: { type: "object", properties: { race: { type: "string", description: 'The word "next", or part of the race name.' } }, required: ["race"] } },
   { name: "get_metrics", description: "A metric history from the last sync: training_load (acute, chronic, ratio), vo2max, endurance, weekly_distance or race_predictions.", input_schema: { type: "object", properties: { metric: { type: "string", enum: ["training_load", "vo2max", "endurance", "weekly_distance", "race_predictions"] }, days: { type: "number", description: "How many recent days, 1 to 90. Default 28." } }, required: ["metric"] } },
   { name: "get_hr_zones", description: "Heart rate zones as facts: Mark's manual copy of his Kotcha zones (Kotcha owns them) and Garmin's zones side by side, with each zone's range in bpm, the zones whose tops differ, and any open warning that Garmin changed its zones and the Kotcha copy was not confirmed.", input_schema: { type: "object", properties: {} } },
   { name: "get_vo2max", description: "Garmin's VO2 max for the last 30 days: daily values with carried-forward days marked, the current value and its date, and the change over 30 days.", input_schema: { type: "object", properties: {} } },
@@ -116,6 +118,28 @@ export function runTool(name: string, input: unknown, ctx: ToolContext): string 
         const r = q === "next" ? v.races.find((x) => !x.past) : v.races.find((x) => x.title.toLowerCase().includes(q));
         if (!r) return wrapData(name, { error: `No race matches "${a.race}".`, races: v.races.map((x) => x.title) });
         return wrapData(name, { race: raceBrief(r), ...getLeadUp(ctx.db, ctx.now, r.eventKey) });
+      }
+      case "get_race_weather": {
+        const a = leadupArgs.parse(input);
+        const v = getRaceView(ctx.db, ctx.now);
+        const q = a.race.trim().toLowerCase();
+        const r = q === "next" ? v.races.find((x) => !x.past) : v.races.find((x) => x.title.toLowerCase().includes(q));
+        if (!r) return wrapData(name, { error: `No race matches "${a.race}".`, races: v.races.map((x) => x.title) });
+        const w = buildRaceWeather(ctx.db, ctx.now, r);
+        return wrapData(name, {
+          race: r.title,
+          date: w.date,
+          daysToGo: w.daysUntil,
+          source: "Open-Meteo.com, a forecast that changes",
+          place: w.place.state === "found" ? { name: cleanText(w.place.name), latitude: w.place.latitude, longitude: w.place.longitude, taken_from: w.place.source } : { state: w.place.state },
+          inWindow: w.inWindow,
+          availableFrom: w.inWindow ? null : w.availableFrom,
+          startLocal: w.startLocal,
+          startTimeUnverified: w.startUnverified,
+          raceTimeZone: w.raceTimeZone,
+          forecastTimeZone: w.forecastTimeZone,
+          forecast: w.forecast && { fetchedAt: w.forecast.fetchedAt, ageMinutes: w.forecast.ageMinutes, stale: w.forecast.stale, lastRefreshFailed: w.forecast.refreshFailed, atStart: w.forecast.atStart, hoursAroundStart: w.forecast.strip },
+        });
       }
       case "get_hr_zones": {
         const z = getZonesView(ctx.db, ctx.now);

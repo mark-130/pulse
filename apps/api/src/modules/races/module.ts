@@ -32,7 +32,7 @@ export function createRacesModule(deps: { db: Db; now?: () => Date }): Module<Ho
         if (!db.select({ id: race.id }).from(race).where(eq(race.eventKey, key)).get()) return c.json({ error: "Unknown race." }, 404);
         const prev = db.select().from(raceMeta).where(eq(raceMeta.metaKey, key)).get();
         const previous = { priority: prev?.priority ?? null, type: prev?.type ?? null };
-        if (priority === null && type === null && !prev?.goalOverrideS && !prev?.notes) {
+        if (priority === null && type === null && !prev?.goalOverrideS && !prev?.notes && !prev?.forecastPlace) {
           db.delete(raceMeta).where(eq(raceMeta.metaKey, key)).run();
         } else {
           const values = { priority, type, updatedAt: clock().toISOString() };

@@ -104,7 +104,39 @@ export const raceMeta = sqliteTable("race_meta", {
   type: text("type", { enum: ["road", "trail"] }),
   goalOverrideS: real("goal_override_s"),
   notes: text("notes"),
+  /** The place name Mark typed in the Forecast place field, and what it resolved to (D59). Null when not set. */
+  forecastPlace: text("forecast_place"),
+  forecastName: text("forecast_name"),
+  forecastLat: real("forecast_lat"),
+  forecastLon: real("forecast_lon"),
   updatedAt: text("updated_at").notNull(),
+});
+
+/** Where a race's forecast is taken from: resolved once and cached (D59). source is manual, garmin or title. */
+export const racePlace = sqliteTable("race_place", {
+  raceKey: text("race_key").primaryKey(),
+  source: text("source").notNull(),
+  /** What was looked up, so a changed Garmin location or title is noticed. */
+  query: text("query").notNull(),
+  /** found or not_found. A failed lookup keeps the old row and records the error. */
+  status: text("status").notNull(),
+  name: text("name"),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+  lastAttempt: text("last_attempt").notNull(),
+  lastError: text("last_error"),
+});
+
+/** The cached hourly forecast for the race date, one row per race (D59). The UI reads this and never calls Open-Meteo. */
+export const raceForecast = sqliteTable("race_forecast", {
+  raceKey: text("race_key").primaryKey(),
+  fetchedAt: text("fetched_at"),
+  lastAttempt: text("last_attempt").notNull(),
+  lastError: text("last_error"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  /** Time zone name Open-Meteo resolved for the coordinates (timezone=auto). */
+  timeZone: text("time_zone"),
+  hours: json<unknown[]>("hours"),
 });
 
 export const auditLog = sqliteTable("audit_log", {

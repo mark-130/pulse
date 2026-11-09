@@ -9,3 +9,4 @@ export * from "./update.js";
 export * from "./zones.js";
 export * from "./fitness.js";
 export * from "./history.js";
+export * from "./weather.js";

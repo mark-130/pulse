@@ -18,6 +18,7 @@ import { readingSeries } from "../history/queries.js";
 import { computeReadingsSummary, type Avg } from "../ai/readings-summary.js";
 import { countPending } from "../proposals/engine.js";
 import { getRaceView } from "../races/data.js";
+import { forecastLine } from "../weather/data.js";
 import * as up from "./upstream.js";
 
 /** Reads the database only. Never calls Garmin. */
@@ -166,6 +167,7 @@ export function getToday(db: Db, now: Date): TodayResponse {
     metrics,
     nextRace: races[0] ?? null,
     followingRace: races[1] ?? null,
+    raceForecast: forecastLine(db, now, races[0] ?? null),
   };
 }
 

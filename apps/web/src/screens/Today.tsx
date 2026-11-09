@@ -1,7 +1,7 @@
 import { sevenDayRow, type DayKind } from "@/lib/races";
 import { SportIcon } from "@/components/SportIcon";
 import { KindNote } from "@/components/KindNote";
-import { Activity, ArrowDown, Battery, CalendarDays, Check, CircleHelp, Gauge as GaugeIcon, Heart, Minus, Moon, Sparkles, TriangleAlert } from "lucide-react";
+import { Activity, ArrowDown, Battery, CalendarDays, Check, CircleHelp, CloudSun, Gauge as GaugeIcon, Heart, Minus, Moon, Sparkles, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { AI_BUDGET_TEXT, AI_OFF_TEXT, type RaceItem, type ReadingsSummary, type TodayResponse } from "@pulse/shared";
@@ -172,6 +172,7 @@ function Race({ data }: { data: TodayResponse }) {
             <p className="text-right"><span className="t-countdown">{r.daysUntil}</span><span className="t-secondary block">{r.daysUntil === 1 ? "day" : "days"}</span></p>
           </div>
           <SevenDays today={data.date} race={r} />
+          {data.raceForecast && <p className="t-secondary mb-2 flex items-start gap-1 [overflow-wrap:anywhere]"><CloudSun aria-hidden className="mt-0.5 size-4 shrink-0" />{data.raceForecast}</p>}
           <div className="flex flex-wrap gap-2">
             <PriorityChip priority={r.priority} suggested={r.priorityInferred} />
             {r.distanceM !== null && <Chip>{formatRaceKm(r.distanceM)}</Chip>}

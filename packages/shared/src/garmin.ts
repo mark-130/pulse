@@ -129,6 +129,8 @@ export const todayResponseSchema = z.object({
   metrics: todayMetricsSchema,
   nextRace: raceItemSchema.nullable(),
   followingRace: raceItemSchema.nullable(),
+  /** One factual forecast line for the next race when it is within 7 days (D59). */
+  raceForecast: z.string().nullable().optional(),
 });
 export type TodayResponse = z.infer<typeof todayResponseSchema>;
 

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { aiStatusSchema, historySeriesSchema, historyStatusSchema, yearOnYearSchema, fitnessResponseSchema, vo2ResponseSchema, zonesResponseSchema, debriefOneResponseSchema, debriefsResponseSchema, reviewResponseSchema, leadUpResponseSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
+import { aiStatusSchema, historySeriesSchema, historyStatusSchema, yearOnYearSchema, fitnessResponseSchema, vo2ResponseSchema, zonesResponseSchema, debriefOneResponseSchema, debriefsResponseSchema, reviewResponseSchema, leadUpResponseSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, raceWeatherSchema, forecastPlaceResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
 import { z } from "zod";
 import { api } from "./api";
 
@@ -191,3 +191,19 @@ export function useHistoryAction() {
 export const useHistorySeries = (days: number) => useQuery({ queryKey: ["history-series", days], queryFn: () => api(`/api/history/series?days=${days}`, historySeriesSchema) });
 
 export const useYearOnYear = () => useQuery({ queryKey: ["history-yoy"], queryFn: () => api("/api/history/yoy", yearOnYearSchema) });
+
+/** The cached race day forecast. The server reads its cache, so this never reaches Open-Meteo from the browser. */
+export const useRaceWeather = (key: string) =>
+  useQuery({ queryKey: ["race-weather", key], queryFn: () => api(`/api/races/weather?race=${encodeURIComponent(key)}`, raceWeatherSchema), refetchInterval: 15 * MIN, enabled: key !== "" });
+
+/** Saves the Forecast place for a race. An explicit save: the server looks the name up and stores it with its coordinates. */
+export function useSetForecastPlace() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { key: string; place: string }) => api("/api/races/forecast-place", forecastPlaceResponseSchema, { method: "PUT", body: v }),
+    onSuccess: (res) => {
+      qc.setQueryData(["race-weather", res.weather.raceKey], res.weather);
+      void qc.invalidateQueries({ queryKey: ["today"] });
+    },
+  });
+}

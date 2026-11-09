@@ -15,6 +15,7 @@ import { createAnthropicClient } from "./modules/ai/anthropic.js";
 import { createAiModule } from "./modules/ai/module.js";
 import { aiConfigured } from "./modules/ai/usage.js";
 import { reconcileUpdates } from "./modules/proposals/outcome.js";
+import { createWeatherModule } from "./modules/weather/module.js";
 import { createRacesModule } from "./modules/races/module.js";
 import { createZonesModule } from "./modules/zones/module.js";
 import { createFitnessModule } from "./modules/fitness/module.js";
@@ -63,12 +64,14 @@ const updateService = createUpdateService({ build: buildInfo(config), enabled: c
 log.info({ build: updateService.build.shortSha }, updateService.enabled ? "app updates from the app on" : "app updates from the app off, no watchtower token");
 // A previous update may have restarted us: settle its outcome now.
 reconcileUpdates(db, updateService.build, new Date());
+const weather = createWeatherModule({ db, log });
 const history = createHistoryModule({ db, connect: connectGarmin, days: config.PULSE_HISTORY_DAYS, log, busy: () => shouldYield(new Date(), garmin.isRunning(), backup.isRunning()) });
 modules.push(
   garminModule,
   history.module,
   createUpdateModule({ db, service: updateService }),
   createRacesModule({ db }),
+  weather.module,
   createZonesModule({ db }),
   createFitnessModule({ db }),
   aiModule,
@@ -88,6 +91,8 @@ const crons = startJobs(modules, log);
 setTimeout(() => void garmin.tick(), 10_000);
 // The history import only resumes if it was running before the restart, and the routine sync goes first.
 setTimeout(() => void history.tick(), 60_000);
+// Forecasts for races inside 14 days, refreshed at most every 3 hours (D59).
+setTimeout(() => void weather.tick(), 30_000);
 
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
   log.info({ port: info.port }, "pulse listening");

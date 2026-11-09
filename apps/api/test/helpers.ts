@@ -1,6 +1,7 @@
 import { hashPassword } from "../src/auth/password.js";
 import { createApp } from "../src/app.js";
 import { dbSessionEpoch } from "../src/auth/epoch.js";
+import { createWeatherModule } from "../src/modules/weather/module.js";
 import { loadConfig } from "../src/config.js";
 import { createLogger } from "../src/logger.js";
 
@@ -76,7 +77,7 @@ export function mockWriter(): MockWriter {
   };
 }
 
-export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date; writes?: boolean; env?: Record<string, string>; llm?: LlmClient; logDestination?: DestinationStream; fetchFn?: typeof fetch; autoDebrief?: boolean; historyConnect?: GarminConnector; historyBusy?: () => boolean; historySleep?: (ms: number) => Promise<void>; historyRate?: { baseMs: number; pauseMs: number } } = {}) {
+export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date; writes?: boolean; env?: Record<string, string>; llm?: LlmClient; logDestination?: DestinationStream; fetchFn?: typeof fetch; autoDebrief?: boolean; historyConnect?: GarminConnector; historyBusy?: () => boolean; historySleep?: (ms: number) => Promise<void>; historyRate?: { baseMs: number; pauseMs: number }; weatherFetch?: typeof fetch } = {}) {
   const password = "pw";
   const config = loadConfig({
     NODE_ENV: "test",
@@ -103,11 +104,12 @@ export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Da
   const app0 = { service: updateService, watchtowerUrl: config.WATCHTOWER_URL, token: config.WATCHTOWER_TOKEN, backup: () => { const f = runBackup(handle.sqlite, config.DATA_DIR, opts.clock?.()); backupCalls.push(f); return f; }, fetchFn };
   const proposals = createProposalsModule({ db: handle.db, connect: fake.connect, getWriter: writer.factory, writesEnabled: opts.writes ?? false, app: app0, log, now: opts.clock });
   const history = createHistoryModule({ db: handle.db, connect: opts.historyConnect ?? fake.connect, days: config.PULSE_HISTORY_DAYS, log, now: opts.clock, sleep: opts.historySleep ?? (async () => undefined), busy: opts.historyBusy ?? (() => false), rateBaseMs: opts.historyRate?.baseMs, ratePauseMs: opts.historyRate?.pauseMs });
-  const app = createApp({ config, log, sessionEpoch: dbSessionEpoch(handle.db), modules: [mod.module, history.module, updateModule, createRacesModule({ db: handle.db, now: opts.clock }), createZonesModule({ db: handle.db, now: opts.clock }), createFitnessModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
+  const weather = createWeatherModule({ db: handle.db, fetchFn: opts.weatherFetch ?? (async () => { throw new Error("network is not available in tests"); }), now: opts.clock, log });
+  const app = createApp({ config, log, sessionEpoch: dbSessionEpoch(handle.db), modules: [weather.module, mod.module, history.module, updateModule, createRacesModule({ db: handle.db, now: opts.clock }), createZonesModule({ db: handle.db, now: opts.clock }), createFitnessModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
   const login = await req(app, "/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
   const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const { csrfToken } = (await login.json()) as { csrfToken: string };
   const get = (path: string) => req(app, path, { headers: { cookie } });
   const post = (path: string) => req(app, path, { method: "POST", headers: { cookie, "x-csrf-token": csrfToken } });
-  return { app, handle, fake, writer, mod, ai, history, backupCalls, updateService, get, post, cookie, csrfToken, config };
+  return { app, handle, fake, writer, mod, ai, weather, history, backupCalls, updateService, get, post, cookie, csrfToken, config };
 }

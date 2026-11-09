@@ -2,6 +2,7 @@ import { ChevronLeft, TriangleAlert } from "lucide-react";
 import { Link, useParams } from "react-router";
 import type { LeadUp, LeadUpWeek, RaceMetaInput, RaceView } from "@pulse/shared";
 import { Chip, PriorityChip } from "@/components/Chip";
+import { ForecastCard } from "@/components/ForecastCard";
 import { Button, Card, EmptyState } from "@/components/ui";
 import { formatClock, formatClockDay, formatDate, formatDayDate, formatRaceKm, formatRaceTime, plural } from "@/lib/format";
 import { longestLine, progressLine, scheduledLine, weekLabel, weekTitle } from "@/lib/leadup";
@@ -108,6 +109,7 @@ export function RaceLeadUp() {
             {race && !race.past && <Controls race={race} save={save} busy={set.isPending} />}
             {set.isError && <p role="alert" className="mt-2 text-[13px] font-medium text-danger">{set.error.message}</p>}
           </section>
+          {race && !race.past && <ForecastCard raceKey={race.eventKey} />}
           <LeadUpView leadUp={data.leadUp} />
           {data.syncedAt && <p className="t-label">Garmin synced {formatClockDay(data.syncedAt)}</p>}
         </>
