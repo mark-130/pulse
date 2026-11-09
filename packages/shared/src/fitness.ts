@@ -115,8 +115,8 @@ export const fitnessResponseSchema = z.object({
       ...statusShape,
     })
     .nullable(),
-  hill: z.object({ overall: z.number().nullable(), strength: z.number().nullable(), endurance: z.number().nullable(), date: z.string().nullable(), ...statusShape }).nullable(),
-  lactate: z.object({ heartRate: z.number().nullable(), speedMps: z.number().nullable(), pace: z.string().nullable(), measuredOn: z.string().nullable(), ...statusShape }).nullable(),
+  hill: z.object({ overall: z.number().nullable(), strength: z.number().nullable(), endurance: z.number().nullable(), date: z.string().nullable(), spark: z.array(z.object({ date: z.string(), value: z.number() })).default([]), ...statusShape }).nullable(),
+  lactate: z.object({ heartRate: z.number().nullable(), speedMps: z.number().nullable(), pace: z.string().nullable(), measuredOn: z.string().nullable(), spark: z.array(z.object({ date: z.string(), value: z.number() })).default([]), ...statusShape }).nullable(),
   records: z.object({
     items: z.array(z.object({ key: z.string(), label: z.string(), value: z.string(), date: z.string(), isNew: z.boolean() })),
     ...statusShape,

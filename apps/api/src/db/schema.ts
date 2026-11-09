@@ -226,6 +226,36 @@ export const aiText = sqliteTable(
   (t) => [primaryKey({ columns: [t.kind, t.key] })],
 );
 
+/** One value per kind per day from the history import (D51): sleep, hrv, rhr, readiness, body_battery, endurance (weekly), hill, lactate. Summaries only. */
+export const dailyReading = sqliteTable(
+  "daily_reading",
+  {
+    kind: text("kind").notNull(),
+    date: text("date").notNull(),
+    value: real("value").notNull(),
+    value2: real("value2"),
+    value3: real("value3"),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.date] })],
+);
+
+/** Progress of the history import. One row per kind and window start, so reruns replace rows and never duplicate them. */
+export const backfillProgress = sqliteTable(
+  "backfill_progress",
+  {
+    kind: text("kind").notNull(),
+    windowStart: text("window_start").notNull(),
+    windowEnd: text("window_end").notNull(),
+    /** done: stored (or nothing to store). failed: tried and failed, retried by the next run. */
+    status: text("status", { enum: ["done", "failed"] }).notNull(),
+    rows: integer("rows").notNull().default(0),
+    /** A short sanitised reason for a failed window. */
+    reason: text("reason"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.windowStart] })],
+);
+
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: json("value").notNull(),

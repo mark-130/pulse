@@ -12,6 +12,9 @@ export const GARMIN_READ_TOOLS = [
   "get_training_readiness",
   "get_morning_training_readiness",
   "get_sleep_summary",
+  // History import (4c, D51): range and trend tools that cut the call count. Both are get_ tools and read only.
+  "get_sleep_summary_range",
+  "get_hrv_trend",
   "get_hrv_data",
   "get_rhr_day",
   "get_body_battery",

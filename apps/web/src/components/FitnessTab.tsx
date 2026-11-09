@@ -88,6 +88,8 @@ export function MetricsCards({ f }: { f: FitnessResponse }) {
               <div><dt className="t-label">Strength</dt><dd className="font-semibold">{f.hill.strength ?? "--"}</dd></div>
               <div><dt className="t-label">Endurance</dt><dd className="font-semibold">{f.hill.endurance ?? "--"}</dd></div>
             </dl>
+            {f.hill.spark.length >= 2 && <Spark values={f.hill.spark.map((p) => p.value)} label={`Hill score over ${f.hill.spark.length} points, from ${formatDate(f.hill.spark[0]?.date ?? "")} to ${formatDate(f.hill.spark[f.hill.spark.length - 1]?.date ?? "")}`} className="mt-2" />}
+            {f.hill.spark.length >= 2 && <p className="t-label">Overall score, {formatDate(f.hill.spark[0]?.date ?? "")} to {formatDate(f.hill.spark[f.hill.spark.length - 1]?.date ?? "")}</p>}
             <StaleNote s={f.hill} what="score" />
           </>
         ) : (
@@ -100,6 +102,8 @@ export function MetricsCards({ f }: { f: FitnessResponse }) {
             <p className="flex flex-wrap items-baseline gap-x-2"><span className="font-display text-[28px] font-bold">{f.lactate.heartRate}</span><span className="t-secondary">bpm</span></p>
             {f.lactate.pace && <p className="text-[15px] font-semibold">{f.lactate.pace}</p>}
             {f.lactate.measuredOn && <p className="t-secondary">Measured {formatDate(f.lactate.measuredOn)}</p>}
+            {f.lactate.spark.length >= 2 && <Spark values={f.lactate.spark.map((p) => p.value)} label={`Lactate threshold heart rate over ${f.lactate.spark.length} measurements, from ${f.lactate.spark[0]?.value} to ${f.lactate.spark[f.lactate.spark.length - 1]?.value} bpm`} className="mt-2" />}
+            {f.lactate.spark.length >= 2 && <p className="t-label">Heart rate at each measurement, {f.lactate.spark.length} measurements</p>}
             <StaleNote s={f.lactate} what="measurement" />
           </>
         ) : (

@@ -8,3 +8,4 @@ export * from "./ai.js";
 export * from "./update.js";
 export * from "./zones.js";
 export * from "./fitness.js";
+export * from "./history.js";

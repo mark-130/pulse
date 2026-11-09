@@ -20,6 +20,8 @@ export interface TrackedJob {
   tick(): Promise<void>;
   /** Ignores backoff but not the single-flight lock. Used by the manual trigger and startup. */
   runNow(): Promise<{ ran: boolean }>;
+  /** True while a run is in progress. The history import waits for it. */
+  isRunning(): boolean;
 }
 
 export function getState(db: Db, job: string) {
@@ -86,5 +88,5 @@ export function createTrackedJob(opts: {
     return { ran: true };
   }
 
-  return { name, tick: async () => void (await guarded(true)), runNow: () => guarded(false) };
+  return { name, tick: async () => void (await guarded(true)), runNow: () => guarded(false), isRunning: () => running };
 }

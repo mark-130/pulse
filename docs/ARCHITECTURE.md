@@ -19,6 +19,8 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - race_prediction: date, seconds JSON by distance, garmin_date, fetched_at. One row per day from the first successful sync of the day (D47).
 - personal_record: type_id, key, record_type, value, raw_value, date, first_seen, updated_at. Garmin's running records, with the day each value was first seen (D47).
 - ai_text: kind, key, text, data JSON, model, tokens, created_at, primary key (kind, key). Cached AI text: weekly_review (week start) or debrief (activity id). Rewritten only on Refresh.
+- daily_reading: kind, date, value, value2, value3 (primary key kind and date). Imported daily readings: sleep (score, hours), hrv, rhr, readiness, body_battery (charged, drained), endurance (weekly points), hill (overall, strength, endurance), lactate (heart rate, speed). Summaries only (D51).
+- backfill_progress: kind, window_start, window_end, status (done or failed), rows, reason, updated_at (primary key kind and window_start). The history import upserts by kind and window start.
 - ai_usage: ts, feature, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_gbp (real, GBP)
 - settings: key, value JSON (garmin_backfill windows, home coordinates, Phase 5 calendar allowlist)
 - secret: name, ciphertext (AES-256-GCM, key from PULSE_SECRET_KEY)
@@ -72,6 +74,15 @@ Built in Phase 3 (apps/api/src/modules/proposals). Phase 3 covers Garmin only, a
 - Idempotency (Phase 5): calendar events carry extendedProperties.private.pulseKey. Garmin operations are keyed by scheduled_workout_id.
 - audit_log is append only: ts, actor, action, target, payload_hash (sha256 of the canonical payload), result. The code only inserts, and database triggers (migration 0004) abort any UPDATE or DELETE. Actions written: update.* (see App updates), proposal.created, proposal.rejected, proposal.expired, proposal.stale, proposal.confirm_blocked, proposal.applied, proposal.failed, verification.checked, verification.verified, verification.reverted.
 - Allowlists: Google Calendar writes do not exist until Phase 5, which will define a writable calendar allowlist (likely the app-created "Pulse Training"). Garmin write tools are limited to reschedule_workout and unschedule_workout, named only in executors/garmin.ts. schedule_workout is not built (D32). Home Assistant limited to allowlisted entities, and the domains lock, alarm_control_panel, cover and siren cannot be proposed at all in v1.
+
+## History import (4c, D51)
+- apps/api/src/modules/history: kinds.ts (per kind fetchers and tolerant parsers), engine.ts (windows, retry at half size, rate limit backoff, the three failure stop, yielding), queries.ts (status, daily series with 7 day averages, year on year, the AI monthly summary), module.ts (routes, a once a minute job, shouldYield).
+- Routes: GET /api/history (status), POST /api/history/start, /pause and /resume, GET /api/history/series?days=&kinds= (daily readings with 7 day averages and the stored range), GET /api/history/yoy (this year against last year). GET /api/trends takes ?days= (28 to 1100) and returns weekly distance for that many weeks, the endurance weekly points from the history, and the first stored day per series so a chart can say "Not imported yet". Everything needs a session and the POSTs need CSRF.
+- The engine runs in the background after Start. State lives in settings (history_import), so a restart resumes: the history-import job (every minute) restarts a run that was running, and ends a rate limit pause after an hour. It checks the state before every window, so Pause takes effect within one window. busy() is the routine sync or backup running, the minute either side of :00 and :30, and 03:05 to 03:20 London. The Garmin module exposes isRunning() on its tracked jobs for this.
+- Reads Garmin only, through the same read allowlist. Two tools were added, get_sleep_summary_range and get_hrv_trend (D52). The write allowlist is unchanged.
+- Backup: the history sits in the existing database, covered by the nightly VACUUM INTO backups.
+- Fitness: the VO2 max sparkline, the endurance weekly points and the hill and lactate sparklines use the longer history once it exists (sparklines are averaged into at most 120 points).
+- AI: one new read tool, get_history_summary (D53). The other tools keep their 28 day cap and the weekly review is unchanged.
 
 ## Sync
 - Windows (D41): scheduled workouts last 3 days plus next 14, activities 3 to 14 days, first backfill 180 days in 14 day windows kept in settings (garmin_backfill), see docs/INTEGRATIONS.md.

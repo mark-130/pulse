@@ -66,7 +66,7 @@ interface Task<T> {
   paged?: boolean;
 }
 
-interface Ctx {
+export interface Ctx {
   db: Db;
   today: string;
   nowIso: string;
@@ -142,7 +142,7 @@ function applyWorkouts(data: z.infer<typeof up.scheduledSchema>, ctx: Ctx, to: s
   ctx.db.delete(workout).where(seen.length ? and(future, notInArray(workout.garminScheduledId, seen)) : future).run();
 }
 
-function applyActivities(data: z.infer<typeof up.activitiesSchema>, ctx: Ctx) {
+export function applyActivities(data: z.infer<typeof up.activitiesSchema>, ctx: Ctx) {
   for (const a of data.activities) {
     const values = {
       name: a.name,
@@ -187,7 +187,7 @@ function applyRecords(data: z.infer<typeof up.personalRecordsSchema>, ctx: Ctx) 
   }
 }
 
-function applyVo2(data: z.infer<typeof up.vo2Schema>, ctx: Ctx) {
+export function applyVo2(data: z.infer<typeof up.vo2Schema>, ctx: Ctx) {
   for (const p of data.trend) {
     const values = { value: p.vo2_max, carriedForward: p.carried_forward ?? false, fetchedAt: ctx.nowIso };
     ctx.db.insert(vo2maxPoint).values({ date: p.date, ...values }).onConflictDoUpdate({ target: vo2maxPoint.date, set: values }).run();

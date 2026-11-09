@@ -6,8 +6,12 @@ import { Button, Card } from "@/components/ui";
 import { formatClock, formatDate, formatTime } from "@/lib/format";
 import { ageText } from "@/lib/stale";
 import { useTrends, useVo2 } from "@/lib/queries";
-import { notImportedNote, vo2Ranges } from "@/lib/zones";
+import { movingAverage7 } from "@/lib/history";
+import { notImportedNote } from "@/lib/zones";
 import { useEffect, useState } from "react";
+import { RangePicker } from "@/components/RangePicker";
+import { ReadingsChart } from "@/components/ReadingsChart";
+import { YearOnYearCard } from "@/components/YearOnYearCard";
 import { useSearchParams } from "react-router";
 import { FitnessTab } from "@/components/FitnessTab";
 
@@ -32,15 +36,13 @@ function Empty() {
   return <p className="t-secondary">No data yet. It appears after the first Garmin sync.</p>;
 }
 
-/** VO2 max with range choices. Days Garmin carried forward are drawn lighter. Beyond the stored range it says "Not imported yet". */
-export function Vo2Chart() {
-  const [days, setDays] = useState(90);
-  const q = useVo2(365);
+/** VO2 max over the chosen range. Days Garmin carried forward are drawn lighter, and the bold line is the 7 day average. Beyond the stored range it says "Not imported yet". */
+export function Vo2Chart({ days }: { days: number }) {
+  const q = useVo2(730);
   const v = q.data;
   const today = new Date().toISOString().slice(0, 10);
-  const ranges = vo2Ranges(v?.stored?.from ?? null, today);
   const start = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
-  const points = (v?.points ?? []).filter((p) => p.date >= start);
+  const points = movingAverage7(v?.points ?? []).filter((p) => p.date >= start);
   const note = notImportedNote(days, v?.stored?.from ?? null, today);
   useEffect(() => {
     if (window.location.hash === "#vo2max") document.getElementById("vo2max")?.scrollIntoView({ block: "start" });
@@ -48,27 +50,23 @@ export function Vo2Chart() {
   return (
     <section id="vo2max" className="card md:col-span-2 scroll-mt-4" aria-labelledby="vo2-chart-title">
       <h2 id="vo2-chart-title" className="t-card-title mb-2">VO2 max</h2>
-      <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Range">
-        {ranges.map((r) => (
-          <Button key={r.days} variant={days === r.days ? "primary" : "secondary"} aria-pressed={days === r.days} onClick={() => setDays(r.days)}>{r.label}</Button>
-        ))}
-      </div>
       {q.isPending && <p className="t-secondary">Loading</p>}
       {q.isError && !v && <p role="alert" className="text-danger">{q.error.message}</p>}
       {v && points.length === 0 && <Empty />}
       {v && points.length > 0 && (
         <>
-          <p className="t-secondary mb-2">VO2 max in ml/kg/min, Garmin estimate. Lighter points are days Garmin carried forward.{v.current ? ` Latest ${formatDate(v.current.date)}: ${v.current.value}.` : ""}</p>
+          <p className="t-secondary mb-2">VO2 max in ml/kg/min, Garmin estimate. Lighter points are days Garmin carried forward. The bold line is the 7 day average.{v.current ? ` Latest ${formatDate(v.current.date)}: ${v.current.value}.` : ""}</p>
           <div role="img" aria-label="Line chart of VO2 max. A table follows." className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={points} margin={{ left: 0, right: 8, top: 8, bottom: 16 }}>
                 <CartesianGrid stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="date" tickFormatter={shortDate} {...axis} label={{ value: "Date (dd/mm)", position: "insideBottom", offset: -4, fill: "var(--muted)", fontSize: 12 }} height={52} />
                 <YAxis domain={["dataMin - 0.5", "dataMax + 0.5"]} {...axis} width={40} tickFormatter={(v: number) => v.toFixed(1)} />
+                <Line dataKey="avg7" name="7 day average" stroke="var(--accent)" strokeWidth={2.5} dot={false} isAnimationActive={false} />
                 <Line
                   dataKey="value"
                   stroke="var(--accent)"
-                  strokeOpacity={0.5}
+                  strokeOpacity={0.35}
                   strokeWidth={1.5}
                   isAnimationActive={false}
                   dot={(p: { cx?: number; cy?: number; payload?: { carriedForward?: boolean }; index?: number }) => (
@@ -87,7 +85,8 @@ export function Vo2Chart() {
   );
 }
 
-function Trends({ t }: { t: TrendsResponse }) {
+function Trends({ t, days }: { t: TrendsResponse; days: number }) {
+  const today = new Date().toISOString().slice(0, 10);
   const load = t.trainingLoad.filter((p) => p.atl !== null || p.ctl !== null);
   const synced = (
     <>
@@ -102,7 +101,7 @@ function Trends({ t }: { t: TrendsResponse }) {
       <Card title="Training load" className="md:col-span-2">
         {load.length === 0 ? <Empty /> : (
           <>
-            <p className="t-secondary mb-2">Acute load (7 day, dashed) and chronic load (long term, solid), Garmin units.{lastLoad ? ` Latest ${formatDate(lastLoad.date)}: acute ${lastLoad.atl ?? "--"}, chronic ${lastLoad.ctl ?? "--"}.` : ""}</p>
+            <p className="t-secondary mb-2">Acute load (7 day, dashed) and chronic load (long term, solid), Garmin units. Garmin keeps this for about 6 weeks, so there is nothing earlier.{lastLoad ? ` Latest ${formatDate(lastLoad.date)}: acute ${lastLoad.atl ?? "--"}, chronic ${lastLoad.ctl ?? "--"}.` : ""}</p>
             <div role="img" aria-label="Line chart of acute and chronic training load. A table follows." className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={load} margin={{ left: 0, right: 8, top: 8, bottom: 16 }}>
@@ -121,22 +120,25 @@ function Trends({ t }: { t: TrendsResponse }) {
       </Card>
 
       <Card title="Weekly running distance">
-        <p className="t-secondary mb-2">Kilometres per week, last 12 weeks, from recorded runs.</p>
+        <p className="t-secondary mb-2">Kilometres per week, last {t.weeklyDistance.length} weeks, from recorded runs.</p>
         <div role="img" aria-label="Bar chart of weekly running distance. A table follows." className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={t.weeklyDistance.map((w) => ({ ...w, km: Number((w.distanceM / 1000).toFixed(1)) }))} margin={{ left: 0, right: 8, top: 8, bottom: 16 }}>
               <CartesianGrid stroke="var(--border)" vertical={false} />
               <XAxis dataKey="weekStart" tickFormatter={shortDate} {...axis} label={{ value: "Week starting (dd/mm)", position: "insideBottom", offset: -4, fill: "var(--muted)", fontSize: 12 }} height={52} />
               <YAxis {...axis} width={44} label={{ value: "km", angle: -90, position: "insideLeft", fill: "var(--muted)", fontSize: 12 }} />
-              <Bar dataKey="km" fill="var(--accent)" radius={[6, 6, 0, 0]} isAnimationActive={false} />
+              <Bar dataKey="km" fill="var(--accent)" radius={t.weeklyDistance.length > 30 ? [2, 2, 0, 0] : [6, 6, 0, 0]} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </div>
+        {notImportedNote(days, t.stored.activities, today) && <p className="t-secondary mt-2">{notImportedNote(days, t.stored.activities, today)}</p>}
         <Table head={["Week starting", "km", "Runs"]} rows={[...t.weeklyDistance].reverse().map((w) => [formatDate(w.weekStart), (w.distanceM / 1000).toFixed(1), w.runs])} />
         {synced}
       </Card>
 
-      <Vo2Chart />
+      <ReadingsChart days={days} />
+
+      <Vo2Chart days={days} />
 
       <Card title="Endurance score">
         {!t.endurance ? <Empty /> : (
@@ -152,11 +154,14 @@ function Trends({ t }: { t: TrendsResponse }) {
                 </LineChart>
               </ResponsiveContainer>
             </div>
+            {notImportedNote(days, t.stored.endurance, today) && <p className="t-secondary mt-2">{notImportedNote(days, t.stored.endurance, today)}</p>}
             <Table head={["Week starting", "Average score"]} rows={[...t.endurance.weekly].reverse().map((w) => [formatDate(w.weekStart), w.avg])} />
           </>
         )}
         {synced}
       </Card>
+
+      <YearOnYearCard />
 
       <Card title="Race predictions" className="md:col-span-2">
         {!t.racePredictions ? <Empty /> : (
@@ -177,7 +182,8 @@ function Trends({ t }: { t: TrendsResponse }) {
 const TABS = [{ id: "readings", label: "Readings" }, { id: "fitness", label: "Fitness" }] as const;
 
 export function TrendsScreen() {
-  const q = useTrends();
+  const [days, setDays] = useState(91);
+  const q = useTrends(days);
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") === "fitness" ? "fitness" : "readings";
   return (
@@ -197,6 +203,7 @@ export function TrendsScreen() {
           </button>
         ))}
       </div>
+      {tab === "readings" && <RangePicker days={days} onPick={setDays} />}
       {tab === "fitness" && <FitnessTab />}
       {tab === "readings" && q.isPending && <div aria-hidden="true" className="h-64 rounded-3xl bg-surface-2" />}
       {tab === "readings" && q.isError && !q.data && (
@@ -205,7 +212,7 @@ export function TrendsScreen() {
           <Button className="mt-3" onClick={() => void q.refetch()}>Retry</Button>
         </div>
       )}
-      {tab === "readings" && q.data && <Trends t={q.data} />}
+      {tab === "readings" && q.data && <Trends t={q.data} days={days} />}
     </div>
   );
 }

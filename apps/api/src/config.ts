@@ -32,6 +32,8 @@ const envSchema = z.object({
   /** Stamped into the image by CI. Empty outside CI builds. */
   PULSE_BUILD_SHA: z.string().default(""),
   PULSE_BUILD_TIME: z.string().default(""),
+  /** How many days of Garmin history the one-off import fetches when Mark starts it from Settings (D51). */
+  PULSE_HISTORY_DAYS: z.coerce.number().int().min(30).max(3650).default(730),
   WEB_DIST: z.string().optional(),
   MIGRATIONS_DIR: z.string().optional(),
 });

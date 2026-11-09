@@ -34,8 +34,8 @@ export function createZonesModule(deps: { db: Db; now?: () => Date }): Module<Ho
         }
       });
       app.get("/api/vo2max", (c) => {
-        const q = z.coerce.number().int().min(7).max(400).safeParse(c.req.query("days") ?? "30");
-        return q.success ? c.json(getVo2View(db, clock(), q.data)) : c.json({ error: "days must be 7 to 400" }, 400);
+        const q = z.coerce.number().int().min(7).max(1100).safeParse(c.req.query("days") ?? "30");
+        return q.success ? c.json(getVo2View(db, clock(), q.data)) : c.json({ error: "days must be 7 to 1100" }, 400);
       });
     },
     jobs: [],

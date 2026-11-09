@@ -26,6 +26,28 @@
   - Summaries only. The sync stores the summary tools in garmin_snapshot and the activity, workout and race tables. It never fetches or stores FIT files or per-second or per-kilometre splits, and no FIT or splits tool is on the allowlist (a test checks both).
 - Store raw tool output in garmin_snapshot and validate with zod when reading.
 
+## History import (4c, D51 to D53)
+A one-off, read-only, resumable import of Garmin history so Trends can compare this year with last year. Mark starts it from Settings, History import. Nothing runs before that, and it never writes to Garmin.
+- Span: PULSE_HISTORY_DAYS, default 730 days, ending today (30 to 3650).
+- Tools, by kind (every one is a get_ tool on the read allowlist; two were added for this, see D52):
+  - Activities: get_activities_by_date, summaries only (name, date, type, distance, duration, average and maximum heart rate, plus calories and elevation), pages of 100. Stored in the activity table.
+  - Sleep: get_sleep_summary_range (added, up to 90 nights per call). Falls back to get_sleep_summary per day if the range answer cannot be read.
+  - HRV: get_hrv_trend (added, up to 30 days per call). Falls back to get_hrv_data per day.
+  - Resting heart rate: get_rhr_day, per day (no range tool exists).
+  - Training readiness: get_training_readiness, per day (no range tool exists).
+  - Body battery: get_body_battery range (charged and drained per day).
+  - VO2 max: get_vo2max_trend, up to 90 days per call, into the existing vo2max_point table.
+  - Endurance score: get_endurance_score range (Garmin's weekly averages, dated by the week's first day, and the current score).
+  - Hill score: get_hill_score range (daily overall, strength and endurance).
+  - Lactate threshold: get_lactate_threshold with start and end dates (heart rate and speed at each measurement).
+- Not imported, because Garmin has no history option for them: race predictions (the app keeps one row per day from its first sync, D47), personal records and heart rate zones (the app notes the date a new set is first seen, D46). Training load history is not imported either: get_training_load_trend makes one upstream request per day and times out on long ranges, so Trends shows the last 42 days only and says so.
+- Data kept: daily readings and trends in the daily_reading table (kind, date, up to three values), VO2 max in vo2max_point, activity summaries in the activity table. Never splits, FIT data or per-second data (the allowlist has no such tool). The raw snapshot table is not touched.
+- Windows: range tools start at 30 days and grow towards the tool's limit (90, HRV 30) after three successful windows in a row. Per-day tools use 14 day windows, two calls at a time at most. A 2 second pause after every window. Newest first, one window at a time. One timeout retries the window once at half size (newest half first), then marks that half failed and carries on. HTTP 429 or a rate limit message backs off with doubling waits (30 s, then 60 s) and the same window is tried again. Three in a row pause the import for an hour, and it resumes by itself. Three failed windows in a row stop the import, with the reason under Details in Settings.
+- Progress: backfill_progress has one row per kind and window start (window end, status done or failed, rows stored, a short sanitised reason). Reruns replace rows, so nothing is duplicated and finished windows are never fetched again. State (running, paused, stopped, complete) is in settings, so a restart resumes where it was. The import only resumes by itself if it was running, and a user pause stays paused.
+- Priority: the routine 30 minute sync always goes first. The import waits while the routine sync or the nightly backup runs, for the minute before and after each :00 and :30 sync slot, and in the backup window (03:05 to 03:20 London time).
+- Garmin call volume for 730 days: about 1,570 MCP calls (730 for resting heart rate, 730 for readiness, about 110 range calls). The sleep and HRV range tools make one upstream request per day internally, so they save round trips but not Garmin requests: about 3,000 upstream requests in all. Expect roughly one to one and a half hours, spread over the windows and pauses. The Settings card refines the estimate from the speed so far.
+- Backup: the history data sits in the same SQLite database as everything else, so the nightly VACUUM INTO backup (03:10, newest 7 kept) covers it. It adds well under a few megabytes.
+
 ## Google Calendar (Phase 5, scope to be agreed)
 Not used in v1. Races come from the Garmin calendar (D22). Notes kept for when Phase 5 is scoped:
 - OAuth 2.0 web client. Publish the consent screen to "In production" (personal use, the unverified warning is expected), because Testing mode refresh tokens expire after 7 days.

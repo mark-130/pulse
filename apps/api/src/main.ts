@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import { openDb } from "./db/index.js";
 import { createLogger } from "./logger.js";
 import { createMcpConnector } from "./modules/garmin/client.js";
+import { createHistoryModule, shouldYield } from "./modules/history/module.js";
 import { createGarminModule } from "./modules/garmin/module.js";
 import { modules, startJobs } from "./modules/registry.js";
 import { createMcpWriterFactory } from "./modules/proposals/confirm.js";
@@ -42,7 +43,7 @@ const { module: aiModule, afterSync } = createAiModule({
   log,
   now: () => new Date(),
 });
-const { module: garminModule, garmin } = createGarminModule({
+const { module: garminModule, garmin, backup } = createGarminModule({
   db,
   sqlite,
   config,
@@ -61,8 +62,10 @@ const updateService = createUpdateService({ build: buildInfo(config), enabled: c
 log.info({ build: updateService.build.shortSha }, updateService.enabled ? "app updates from the app on" : "app updates from the app off, no watchtower token");
 // A previous update may have restarted us: settle its outcome now.
 reconcileUpdates(db, updateService.build, new Date());
+const history = createHistoryModule({ db, connect: connectGarmin, days: config.PULSE_HISTORY_DAYS, log, busy: () => shouldYield(new Date(), garmin.isRunning(), backup.isRunning()) });
 modules.push(
   garminModule,
+  history.module,
   createUpdateModule({ db, service: updateService }),
   createRacesModule({ db }),
   createZonesModule({ db }),
@@ -82,6 +85,8 @@ const app = createApp({ config, log, modules });
 const crons = startJobs(modules, log);
 // Catch up shortly after boot instead of waiting up to 30 minutes.
 setTimeout(() => void garmin.tick(), 10_000);
+// The history import only resumes if it was running before the restart, and the routine sync goes first.
+setTimeout(() => void history.tick(), 60_000);
 
 const server = serve({ fetch: app.fetch, port: config.PORT }, (info) => {
   log.info({ port: info.port }, "pulse listening");

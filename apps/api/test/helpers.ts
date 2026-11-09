@@ -28,7 +28,9 @@ import { createGarminModule } from "../src/modules/garmin/module.js";
 import { verifyApplied } from "../src/modules/proposals/verify.js";
 import type { DestinationStream } from "pino";
 import { createAiModule } from "../src/modules/ai/module.js";
+import { createHistoryModule } from "../src/modules/history/module.js";
 import type { LlmClient } from "../src/modules/ai/llm.js";
+import type { GarminConnector } from "../src/modules/garmin/client.js";
 import { aiConfigured } from "../src/modules/ai/usage.js";
 import { createProposalsModule } from "../src/modules/proposals/module.js";
 import type { GarminWriterFactory } from "../src/modules/proposals/executors/garmin.js";
@@ -73,7 +75,7 @@ export function mockWriter(): MockWriter {
   };
 }
 
-export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date; writes?: boolean; env?: Record<string, string>; llm?: LlmClient; logDestination?: DestinationStream; fetchFn?: typeof fetch; autoDebrief?: boolean } = {}) {
+export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Date; writes?: boolean; env?: Record<string, string>; llm?: LlmClient; logDestination?: DestinationStream; fetchFn?: typeof fetch; autoDebrief?: boolean; historyConnect?: GarminConnector; historyBusy?: () => boolean; historySleep?: (ms: number) => Promise<void>; historyRate?: { baseMs: number; pauseMs: number } } = {}) {
   const password = "pw";
   const config = loadConfig({
     NODE_ENV: "test",
@@ -99,11 +101,12 @@ export async function makeGarminApp(opts: { fake?: FakeOptions; clock?: () => Da
   const backupCalls: string[] = [];
   const app0 = { service: updateService, watchtowerUrl: config.WATCHTOWER_URL, token: config.WATCHTOWER_TOKEN, backup: () => { const f = runBackup(handle.sqlite, config.DATA_DIR, opts.clock?.()); backupCalls.push(f); return f; }, fetchFn };
   const proposals = createProposalsModule({ db: handle.db, connect: fake.connect, getWriter: writer.factory, writesEnabled: opts.writes ?? false, app: app0, log, now: opts.clock });
-  const app = createApp({ config, log, modules: [mod.module, updateModule, createRacesModule({ db: handle.db, now: opts.clock }), createZonesModule({ db: handle.db, now: opts.clock }), createFitnessModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
+  const history = createHistoryModule({ db: handle.db, connect: opts.historyConnect ?? fake.connect, days: config.PULSE_HISTORY_DAYS, log, now: opts.clock, sleep: opts.historySleep ?? (async () => undefined), busy: opts.historyBusy ?? (() => false), rateBaseMs: opts.historyRate?.baseMs, ratePauseMs: opts.historyRate?.pauseMs });
+  const app = createApp({ config, log, modules: [mod.module, history.module, updateModule, createRacesModule({ db: handle.db, now: opts.clock }), createZonesModule({ db: handle.db, now: opts.clock }), createFitnessModule({ db: handle.db, now: opts.clock }), proposals, ai.module] });
   const login = await req(app, "/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password }) });
   const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   const { csrfToken } = (await login.json()) as { csrfToken: string };
   const get = (path: string) => req(app, path, { headers: { cookie } });
   const post = (path: string) => req(app, path, { method: "POST", headers: { cookie, "x-csrf-token": csrfToken } });
-  return { app, handle, fake, writer, mod, ai, backupCalls, updateService, get, post, cookie, csrfToken, config };
+  return { app, handle, fake, writer, mod, ai, history, backupCalls, updateService, get, post, cookie, csrfToken, config };
 }

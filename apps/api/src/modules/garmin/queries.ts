@@ -14,6 +14,7 @@ import type { Db } from "../../db/index.js";
 import { activity, garminSnapshot, vo2maxPoint, workout } from "../../db/schema.js";
 import { lastGarminOk } from "./freshness.js";
 import { loadReadings, type Point } from "../ai/readings.js";
+import { readingSeries } from "../history/queries.js";
 import { computeReadingsSummary, type Avg } from "../ai/readings-summary.js";
 import { countPending } from "../proposals/engine.js";
 import { getRaceView } from "../races/data.js";
@@ -189,16 +190,18 @@ export function getWeek(db: Db, now: Date, startParam?: string): WeekResponse {
   };
 }
 
-export function getTrends(db: Db, now: Date): TrendsResponse {
+/** Trends for a range of days (D51): 4 weeks, 3 months, 12 months or 24 months. The weekly distance covers whole weeks and the endurance score uses the imported history too. */
+export function getTrends(db: Db, now: Date, days = 84): TrendsResponse {
   const today = londonDate(now);
+  const weekCount = Math.max(4, Math.min(105, Math.ceil(days / 7)));
   const load = latestSnapshot(db, "training_load_trend", up.trainingLoadTrendSchema, today);
-  const vo2 = db.select().from(vo2maxPoint).orderBy(asc(vo2maxPoint.date)).all().filter((p) => p.date >= addDays(today, -89));
+  const vo2 = db.select().from(vo2maxPoint).orderBy(asc(vo2maxPoint.date)).all().filter((p) => p.date >= addDays(today, -(Math.max(days, 90) - 1)));
   const endurance = latestSnapshot(db, "endurance_score", up.enduranceSchema, today);
   const preds = latestSnapshot(db, "race_predictions", up.racePredictionsSchema, today);
-  const since = addDays(weekStart(today), -7 * 11);
+  const since = addDays(weekStart(today), -7 * (weekCount - 1));
   const runs = db.select().from(activity).where(and(gte(activity.date, since), eq(activity.type, "running"))).all();
   const weeks = new Map<string, { distanceM: number; runs: number }>();
-  for (let i = 0; i < 12; i++) weeks.set(addDays(since, i * 7), { distanceM: 0, runs: 0 });
+  for (let i = 0; i < weekCount; i++) weeks.set(addDays(since, i * 7), { distanceM: 0, runs: 0 });
   for (const a of runs) {
     const w = weeks.get(weekStart(a.date));
     if (w) {
@@ -206,15 +209,18 @@ export function getTrends(db: Db, now: Date): TrendsResponse {
       w.runs += 1;
     }
   }
+  const enduranceHistory = readingSeries(db, "endurance").map((p) => ({ weekStart: p.date, avg: p.value }));
+  const firstActivity = db.select({ d: activity.date }).from(activity).orderBy(asc(activity.date)).limit(1).get()?.d ?? null;
   const labels: Record<string, string> = { "5K": "5K", "10K": "10K", half_marathon: "Half marathon", marathon: "Marathon" };
   return {
     syncedAt: lastGarminOk(db, ["activities", "trends"]),
     trainingLoad: (load?.data.trend ?? []).map((t) => ({ date: t.date, atl: t.atl ?? null, ctl: t.ctl ?? null, acwr: t.acwr ?? null })),
     vo2max: vo2.map((p) => ({ date: p.date, value: p.value, carriedForward: p.carriedForward })),
-    endurance: endurance
-      ? { current: endurance.data.current_score ?? null, classification: endurance.data.classification ?? null, weekly: endurance.data.weekly_breakdown.map((w) => ({ weekStart: w.week_start, avg: w.avg_score })) }
+    endurance: endurance || enduranceHistory.length
+      ? { current: endurance?.data.current_score ?? null, classification: endurance?.data.classification ?? null, weekly: mergeWeekly(enduranceHistory, endurance?.data.weekly_breakdown.map((w) => ({ weekStart: w.week_start, avg: w.avg_score })) ?? []).filter((w) => w.weekStart >= addDays(weekStart(today), -7 * (weekCount - 1))) }
       : null,
     weeklyDistance: [...weeks.entries()].map(([weekStartDate, v]) => ({ weekStart: weekStartDate, ...v })),
+    stored: { activities: firstActivity, endurance: enduranceHistory[0]?.weekStart ?? endurance?.data.weekly_breakdown.map((w) => w.week_start).sort()[0] ?? null, trainingLoad: load?.data.trend[0]?.date ?? null },
     racePredictions: preds
       ? {
           date: preds.data.prediction_date,
@@ -222,4 +228,11 @@ export function getTrends(db: Db, now: Date): TrendsResponse {
         }
       : null,
   };
+}
+
+/** Weekly points from two sources, one per week, the second source winning. Oldest first. */
+function mergeWeekly(a: { weekStart: string; avg: number }[], b: { weekStart: string; avg: number }[]): { weekStart: string; avg: number }[] {
+  const m = new Map<string, number>();
+  for (const w of [...a, ...b]) m.set(w.weekStart, w.avg);
+  return [...m.entries()].sort((x, y) => x[0].localeCompare(y[0])).map(([weekStart, avg]) => ({ weekStart, avg }));
 }

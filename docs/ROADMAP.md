@@ -33,6 +33,10 @@ Built: the Today cards (Kotcha zones copy with Garmin's zones and the change war
 ### Phase 4d: Fitness tab (D47)
 Built: the Fitness tab on Trends (race predictions with the daily snapshot table, VO2 max, endurance score, hill score, lactate threshold, running personal records with a New tag), the sync kinds, the race lead-up prediction line and the get_fitness_summary read tool. Race predictions cannot be backfilled, so the trend starts on the first stored day. Phase 4c (history import: older endurance, hill and lactate threshold, older VO2 max) is not built.
 
+### Phase 4c: history import (built, waiting for Mark to start it, D51 to D53)
+Scope as built: a one-off, read-only, resumable import of 730 days (PULSE_HISTORY_DAYS) of Garmin history, started from Settings, gentle on the unofficial API. Trends ranges of 4 weeks, 3 months, 12 months and 24 months with 7 day averages, a "This year against last year" card, longer Fitness sparklines, and one AI read tool, get_history_summary. Race predictions, personal records and heart rate zones have no history option and are not imported.
+Acceptance: Start, Pause and Resume work from Settings. A restart resumes without repeating finished windows. The routine sync and the nightly backup go first. Three failed windows in a row stop it with the reason shown. No secrets in logs or errors. Sign-off waits for Mark to run the import and test it.
+
 ## Phase 5: Google Calendar, scope to be agreed
 Scope and acceptance to be agreed before this phase starts. Candidates: busy time for the readings summary, mirrored planned workouts on a "Pulse Training" calendar (proposals only). See docs/INTEGRATIONS.md.
 

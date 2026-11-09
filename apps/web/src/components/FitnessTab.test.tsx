@@ -24,8 +24,8 @@ const base: FitnessResponse = {
     thresholds: [["intermediate", "Intermediate", 4900], ["trained", "Trained", 5500], ["well_trained", "Well trained", 6100], ["expert", "Expert", 6800], ["superior", "Superior", 7400], ["elite", "Elite", 8000]].map(([key, label, value]) => ({ key: key as string, label: label as string, value: value as number })),
     band: { key: "trained", from: 5500, to: 6100 }, scale: { lo: 4300, hi: 8000 }, weekly: [{ weekStart: "2026-10-05", avg: 5770 }, { weekStart: "2026-10-12", avg: 5755 }, { weekStart: "2026-10-19", avg: 5740 }], ...fresh,
   },
-  hill: { overall: 36, strength: 19, endurance: 15, date: "2026-11-08", ...fresh },
-  lactate: { heartRate: 162, speedMps: 3.1388801, pace: "5:19 /km", measuredOn: "2026-11-04", ...fresh },
+  hill: { overall: 36, strength: 19, endurance: 15, date: "2026-11-08", spark: [], ...fresh },
+  lactate: { heartRate: 162, speedMps: 3.1388801, pace: "5:19 /km", measuredOn: "2026-11-04", spark: [], ...fresh },
   records: {
     items: [
       { key: "1k", label: "1K", value: "4:33", date: "2025-09-13", isNew: false }, { key: "mile", label: "Mile", value: "7:20", date: "2025-09-13", isNew: false }, { key: "5K", label: "5K", value: "23:40", date: "2025-09-13", isNew: false },

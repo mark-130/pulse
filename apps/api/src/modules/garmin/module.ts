@@ -98,7 +98,11 @@ export function createGarminModule(deps: GarminModuleDeps): { module: Module<Hon
         if (!q.success) return c.json({ error: "start must be YYYY-MM-DD" }, 400);
         return c.json(getWeek(db, clock(), q.data.start));
       });
-      app.get("/api/trends", (c) => c.json(getTrends(db, clock())));
+      app.get("/api/trends", (c) => {
+        const q = z.object({ days: z.coerce.number().int().min(28).max(1100).default(84) }).safeParse({ days: c.req.query("days") ?? undefined });
+        if (!q.success) return c.json({ error: "days must be 28 to 1100" }, 400);
+        return c.json(getTrends(db, clock(), q.data.days));
+      });
       app.get("/api/sync/status", (c) => {
         const now = clock();
         const job = jobStatus(db, "garmin", now, GARMIN_STALE_AFTER_MIN);

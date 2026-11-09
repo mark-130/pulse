@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { aiStatusSchema, fitnessResponseSchema, vo2ResponseSchema, zonesResponseSchema, debriefOneResponseSchema, debriefsResponseSchema, reviewResponseSchema, leadUpResponseSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
+import { aiStatusSchema, historySeriesSchema, historyStatusSchema, yearOnYearSchema, fitnessResponseSchema, vo2ResponseSchema, zonesResponseSchema, debriefOneResponseSchema, debriefsResponseSchema, reviewResponseSchema, leadUpResponseSchema, buildInfoSchema, updateCheckResponseSchema, updateStatusSchema, briefingResponseSchema, chatThreadSchema, confirmResponseSchema, proposalsResponseSchema, type CreateProposalRequest, raceMetaResponseSchema, racesResponseSchema, type RaceMetaInput, syncStatusSchema, todayResponseSchema, trendsResponseSchema, weekResponseSchema } from "@pulse/shared";
 import { z } from "zod";
 import { api } from "./api";
 
@@ -8,7 +8,7 @@ const MIN = 60_000;
 export const useToday = () => useQuery({ queryKey: ["today"], queryFn: () => api("/api/today", todayResponseSchema), refetchInterval: 5 * MIN });
 export const useWeek = (start: string | null) =>
   useQuery({ queryKey: ["week", start], queryFn: () => api(start ? `/api/week?start=${start}` : "/api/week", weekResponseSchema) });
-export const useTrends = () => useQuery({ queryKey: ["trends"], queryFn: () => api("/api/trends", trendsResponseSchema) });
+export const useTrends = (days = 91) => useQuery({ queryKey: ["trends", days], queryFn: () => api(`/api/trends?days=${days}`, trendsResponseSchema) });
 export const useRaces = () => useQuery({ queryKey: ["races"], queryFn: () => api("/api/races", racesResponseSchema) });
 export const useSyncStatus = () =>
   useQuery({ queryKey: ["sync-status"], queryFn: () => api("/api/sync/status", syncStatusSchema), refetchInterval: MIN });
@@ -170,3 +170,24 @@ export const useVo2 = (days: number) => useQuery({ queryKey: ["vo2max", days], q
 
 /** Garmin's fitness figures. Reads the cache. */
 export const useFitness = () => useQuery({ queryKey: ["fitness"], queryFn: () => api("/api/fitness", fitnessResponseSchema), refetchInterval: 5 * MIN });
+
+/** The history import (D51). It polls every few seconds while it runs, and rarely otherwise. */
+export const useHistory = () =>
+  useQuery({
+    queryKey: ["history"],
+    queryFn: () => api("/api/history", historyStatusSchema),
+    refetchInterval: (q) => (q.state.data?.state === "running" ? 4_000 : 60_000),
+  });
+
+export function useHistoryAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (action: "start" | "pause" | "resume") => api(`/api/history/${action}`, historyStatusSchema, { method: "POST" }),
+    onSuccess: (data) => qc.setQueryData(["history"], data),
+  });
+}
+
+/** Daily readings with their 7 day average, for the Trends chart. */
+export const useHistorySeries = (days: number) => useQuery({ queryKey: ["history-series", days], queryFn: () => api(`/api/history/series?days=${days}`, historySeriesSchema) });
+
+export const useYearOnYear = () => useQuery({ queryKey: ["history-yoy"], queryFn: () => api("/api/history/yoy", yearOnYearSchema) });

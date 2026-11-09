@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AI_BUDGET_TEXT } from "@pulse/shared";
 import { Button, Card } from "@/components/ui";
+import { HistoryCard } from "@/components/HistoryCard";
 import { UpdateCard } from "@/components/UpdateCard";
 import { useAiStatus } from "@/lib/queries";
 import { formatDate, plural } from "@/lib/format";
@@ -72,6 +73,7 @@ export function Settings() {
       </Card>
       <AiUsage />
       <UpdateCard />
+      <HistoryCard />
       <Button variant="secondary" onClick={() => void logout()}>
         Sign out
       </Button>

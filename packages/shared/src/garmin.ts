@@ -154,6 +154,8 @@ export const trendsResponseSchema = z.object({
     })
     .nullable(),
   weeklyDistance: z.array(z.object({ weekStart: z.string(), distanceM: z.number(), runs: z.number() })),
+  /** The first day held for each series, so a chart can say "Not imported yet" before it (D51). Null when nothing is stored. */
+  stored: z.object({ activities: z.string().nullable(), endurance: z.string().nullable(), trainingLoad: z.string().nullable() }).default({ activities: null, endurance: null, trainingLoad: null }),
   racePredictions: z.object({ date: z.string(), items: z.array(z.object({ label: z.string(), seconds: z.number() })) }).nullable(),
 });
 export type TrendsResponse = z.infer<typeof trendsResponseSchema>;

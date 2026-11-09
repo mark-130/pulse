@@ -9,9 +9,10 @@ const H = 56;
 /** A 30 day sparkline. Days Garmin carried forward are drawn lighter. */
 export function Sparkline({ points, className = "mt-2 h-14 w-full" }: { points: Vo2Response["points"]; className?: string }) {
   const pts = sparkPoints(points, W, H);
+  const span = points.length > 1 ? Math.round((Date.parse(`${points[points.length - 1]?.date}T12:00:00Z`) - Date.parse(`${points[0]?.date}T12:00:00Z`)) / 86_400_000) : 0;
   if (pts.length < 2) return null;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className={className} role="img" aria-label={`VO2 max over the last 30 days, ${points[0]?.value} to ${points[points.length - 1]?.value}. Lighter points are days Garmin carried forward.`}>
+    <svg viewBox={`0 0 ${W} ${H}`} className={className} role="img" aria-label={`VO2 max over the last ${span} days, ${points[0]?.value} to ${points[points.length - 1]?.value}. Lighter points are days Garmin carried forward.`}>
       <polyline points={pts.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="var(--accent)" strokeOpacity="0.45" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
       {pts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={p.carried ? 2.5 : 3} fill="var(--accent)" fillOpacity={p.carried ? 0.3 : 1} data-carried={p.carried ? "true" : "false"} />)}
     </svg>

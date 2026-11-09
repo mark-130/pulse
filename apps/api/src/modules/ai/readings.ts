@@ -13,7 +13,7 @@ export interface Point {
   value: number;
 }
 
-const KINDS: { kind: ReadingKind; snapshot: string; pick: (payload: unknown) => number | null }[] = [
+export const READING_KINDS: { kind: ReadingKind; snapshot: string; pick: (payload: unknown) => number | null }[] = [
   {
     kind: "readiness",
     snapshot: "training_readiness",
@@ -38,7 +38,7 @@ export const LABELS: Record<ReadingKind, string> = { readiness: "readiness", sle
 export function loadReadings(db: Db, today: string): Record<ReadingKind, Point[]> {
   const since = addDays(today, -(READING_DAYS - 1));
   const out = {} as Record<ReadingKind, Point[]>;
-  for (const k of KINDS) {
+  for (const k of READING_KINDS) {
     const rows = db.select().from(garminSnapshot).where(and(eq(garminSnapshot.kind, k.snapshot), gte(garminSnapshot.date, since), lte(garminSnapshot.date, today))).orderBy(asc(garminSnapshot.date)).all();
     out[k.kind] = rows.flatMap((r) => {
       const v = k.pick(r.payload);

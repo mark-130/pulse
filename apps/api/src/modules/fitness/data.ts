@@ -19,6 +19,7 @@ import type { Db } from "../../db/index.js";
 import { garminSnapshot, personalRecord, racePrediction } from "../../db/schema.js";
 import * as up from "../garmin/upstream.js";
 import { getVo2View, kindStatus } from "../zones/data.js";
+import { readingSeries } from "../history/queries.js";
 
 /** The latest successfully stored snapshot of a kind. A failed or stale fetch leaves it as it was, so a card never goes blank. */
 function latest<T>(db: Db, kind: string, schema: z.ZodType<T>): { date: string; data: T } | null {
@@ -36,6 +37,19 @@ export function enduranceBand(score: number, thresholds: Record<string, number>)
     if (score >= t.value) hit = { key: t.key, from: t.value, to: ordered[i + 1]?.value ?? null };
   });
   return hit;
+}
+
+/** At most this many points in a sparkline. A long history is averaged into buckets so the line stays light. */
+export const SPARK_MAX_POINTS = 120;
+
+export function downsample(points: { date: string; value: number }[], max = SPARK_MAX_POINTS): { date: string; value: number }[] {
+  if (points.length <= max) return points;
+  const size = points.length / max;
+  return Array.from({ length: max }, (_, i) => {
+    const bucket = points.slice(Math.floor(i * size), Math.floor((i + 1) * size) || undefined);
+    const last = bucket[bucket.length - 1] as { date: string; value: number };
+    return { date: last.date, value: Math.round((bucket.reduce((n, p) => n + p.value, 0) / bucket.length) * 10) / 10 };
+  });
 }
 
 export function getFitness(db: Db, now: Date): FitnessResponse {
@@ -82,7 +96,8 @@ export function getFitness(db: Db, now: Date): FitnessResponse {
 
   return {
     predictions: { date: lastPred?.garminDate ?? lastPred?.date ?? null, rows, trackingSince: days[0]?.date ?? null, snapshots: days.length, ...kindStatus(db, "race_predictions", now) },
-    vo2max: getVo2View(db, now, 30),
+    // The sparkline uses the longest history held, up to 24 months. The 30 day change is still worked out from the last 30 days.
+    vo2max: getVo2View(db, now, 730),
     endurance:
       e && eScore !== null
         ? {
@@ -93,20 +108,41 @@ export function getFitness(db: Db, now: Date): FitnessResponse {
             thresholds: t,
             band: eThresholds ? enduranceBand(eScore, eThresholds) : null,
             scale: first !== undefined && second !== undefined && t.length > 1 ? { lo: first - (second - first), hi: t[t.length - 1]?.value ?? first } : null,
-            weekly: [...e.data.weekly_breakdown].sort((a, b) => a.week_start.localeCompare(b.week_start)).map((w) => ({ weekStart: w.week_start, avg: w.avg_score })),
+            weekly: mergeWeekly(readingSeries(db, "endurance").map((p) => ({ weekStart: p.date, avg: p.value })), e.data.weekly_breakdown.map((w) => ({ weekStart: w.week_start, avg: w.avg_score }))),
             ...kindStatus(db, "endurance_score", now),
           }
         : null,
-    hill: hill ? { overall: hill.data.latest_overall_score ?? null, strength: hill.data.latest_strength_score ?? null, endurance: hill.data.latest_endurance_score ?? null, date: hill.data.latest_date ?? hill.date, ...kindStatus(db, "hill", now) } : null,
+    hill: hill ? { overall: hill.data.latest_overall_score ?? null, strength: hill.data.latest_strength_score ?? null, endurance: hill.data.latest_endurance_score ?? null, date: hill.data.latest_date ?? hill.date, spark: downsample(hillSpark(db, hill.data)), ...kindStatus(db, "hill", now) } : null,
     lactate: lt
       ? {
           heartRate: lt.data.lactate_threshold_heart_rate_bpm ?? null,
           speedMps: lt.data.lactate_threshold_speed_mps ?? null,
           pace: lt.data.lactate_threshold_speed_mps ? paceFromSpeed(lt.data.lactate_threshold_speed_mps) : null,
           measuredOn: lt.data.speed_hr_date ? lt.data.speed_hr_date.slice(0, 10) : lt.date,
+          spark: downsample(lactateSpark(db, lt.data)),
           ...kindStatus(db, "lactate_threshold", now),
         }
       : null,
     records: { items: records, ...kindStatus(db, "personal_records", now) },
   };
+}
+
+function mergeWeekly(a: { weekStart: string; avg: number }[], b: { weekStart: string; avg: number }[]): { weekStart: string; avg: number }[] {
+  const m = new Map<string, number>();
+  for (const w of [...a, ...b]) m.set(w.weekStart, w.avg);
+  return [...m.entries()].sort((x, y) => x[0].localeCompare(y[0])).map(([weekStart, avg]) => ({ weekStart, avg }));
+}
+
+/** Hill score history: the imported days, with the latest sync's own daily scores taking priority. */
+function hillSpark(db: Db, data: z.infer<typeof up.hillSchema>): { date: string; value: number }[] {
+  const m = new Map(readingSeries(db, "hill").map((p) => [p.date, p.value]));
+  for (const d of data.daily_scores ?? []) if (d.overall != null) m.set(d.date.slice(0, 10), d.overall);
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, value]) => ({ date, value }));
+}
+
+/** Lactate threshold heart rate at each measurement, from the imported history and the latest one. */
+function lactateSpark(db: Db, data: z.infer<typeof up.lactateSchema>): { date: string; value: number }[] {
+  const m = new Map(readingSeries(db, "lactate").map((p) => [p.date, p.value]));
+  if (data.lactate_threshold_heart_rate_bpm != null && data.speed_hr_date) m.set(data.speed_hr_date.slice(0, 10), data.lactate_threshold_heart_rate_bpm);
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, value]) => ({ date, value }));
 }

@@ -4,6 +4,7 @@ import { addDays, londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { activity } from "../../db/schema.js";
 import { getToday, getTrends, getWeek } from "../garmin/queries.js";
+import { getHistorySummary } from "../history/queries.js";
 import { getLeadUp, getRaceView } from "../races/data.js";
 import { getFitness } from "../fitness/data.js";
 import { getVo2View, getZonesView } from "../zones/data.js";
@@ -22,6 +23,7 @@ export const ASK_TOOLS: LlmTool[] = [
   { name: "get_hr_zones", description: "Heart rate zones as facts: Mark's manual copy of his Kotcha zones (Kotcha owns them) and Garmin's zones side by side, with each zone's range in bpm, the zones whose tops differ, and any open warning that Garmin changed its zones and the Kotcha copy was not confirmed.", input_schema: { type: "object", properties: {} } },
   { name: "get_vo2max", description: "Garmin's VO2 max for the last 30 days: daily values with carried-forward days marked, the current value and its date, and the change over 30 days.", input_schema: { type: "object", properties: {} } },
   { name: "get_fitness_summary", description: "Garmin's fitness figures with their dates: race predictions with pace and Mark's personal record beside each, VO2 max with its 30 day change, endurance score with Garmin's own label and thresholds, hill score, lactate threshold, and running personal records. Figures only.", input_schema: { type: "object", properties: {} } },
+  { name: "get_history_summary", description: "Monthly average, minimum and maximum for each stored kind (sleep score, HRV, resting heart rate, Garmin training readiness, body battery charged, VO2 max, endurance score, hill score, lactate threshold heart rate) for up to 24 months, at most 24 rows per kind, plus monthly running distance and runs. Facts from the history Mark imported. Only months with stored data are listed.", input_schema: { type: "object", properties: { months: { type: "number", description: "How many recent months, 1 to 24. Default 12." }, kinds: { type: "array", items: { type: "string" }, description: "Optional kind ids to include, for example sleep_score or vo2max." } } } },
   { name: "get_activity", description: "One recorded activity by id, from the Garmin sync.", input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
 ];
 
@@ -63,6 +65,7 @@ const weekArgs = z.object({ start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optio
 const racesArgs = z.object({ include_past: z.boolean().optional() });
 const leadupArgs = z.object({ race: z.string().min(1).max(100) });
 const metricsArgs = z.object({ metric: z.enum(["training_load", "vo2max", "endurance", "weekly_distance", "race_predictions"]), days: z.number().int().min(1).max(90).optional() });
+const historyArgs = z.object({ months: z.number().int().min(1).max(24).optional(), kinds: z.array(z.string().max(40)).max(12).optional() });
 const activityArgs = z.object({ id: z.string().min(1).max(40) });
 
 export interface ToolContext {
@@ -150,6 +153,10 @@ export function runTool(name: string, input: unknown, ctx: ToolContext): string 
           : a.metric === "weekly_distance" ? t.weeklyDistance.slice(-Math.max(1, Math.ceil(days / 7)))
           : t.racePredictions;
         return wrapData(name, { metric: a.metric, syncedAt: t.syncedAt, data });
+      }
+      case "get_history_summary": {
+        const a = historyArgs.parse(input ?? {});
+        return wrapData(name, getHistorySummary(ctx.db, ctx.now, a.months ?? 12, a.kinds));
       }
       case "get_activity": {
         const a = activityArgs.parse(input);
