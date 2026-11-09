@@ -31,6 +31,36 @@ describe("rate limiter", () => {
     expect(rl.attempt("ip", 500)).toBe(false);
     expect(rl.attempt("ip", 1500)).toBe(true);
   });
+
+  it("sweeps expired keys so the map does not grow without bound", () => {
+    const rl = new RateLimiter(5, 1000, 10_000);
+    for (let i = 0; i < 250; i++) rl.attempt(`ip${i}`, 0);
+    expect(rl.size).toBe(250);
+    // Every earlier key has expired by now. A sweep runs within 100 attempts.
+    for (let i = 0; i < 100; i++) rl.attempt("live", 5000);
+    expect(rl.size).toBe(1);
+  });
+
+  it("caps the number of keys, evicting the least recently used, and never refuses a new key", () => {
+    const rl = new RateLimiter(5, 60_000, 50);
+    for (let i = 0; i < 200; i++) expect(rl.attempt(`ip${i}`, 1000)).toBe(true);
+    expect(rl.size).toBeLessThanOrEqual(50);
+    expect(rl.attempt("ip199", 1001)).toBe(true);
+  });
+
+  it("keeps the 5 per window limit for one shared key under churn from other keys", () => {
+    const rl = new RateLimiter(5, 60_000, 50);
+    for (let i = 0; i < 5; i++) expect(rl.attempt("gateway", 1000 + i)).toBe(true);
+    for (let i = 0; i < 30; i++) rl.attempt(`other${i}`, 2000);
+    expect(rl.attempt("gateway", 3000)).toBe(false);
+  });
+
+  it("resets a key after a successful login", () => {
+    const rl = new RateLimiter(5, 1000);
+    for (let i = 0; i < 5; i++) rl.attempt("ip", 0);
+    rl.reset("ip");
+    expect(rl.attempt("ip", 1)).toBe(true);
+  });
 });
 
 const json = { "content-type": "application/json" };

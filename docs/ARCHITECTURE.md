@@ -58,7 +58,7 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - Web: Trends has two tabs, Readings and Fitness (?tab=fitness).
 
 ## Auth
-Single user. Password checked against a scrypt hash (salt:hash in hex) in PULSE_PASSWORD_HASH. Signed httpOnly SameSite=Lax session cookie (30 days). CSRF token header on every non-GET. Login rate limit: 5 attempts per 15 minutes per IP. Tailscale identity headers are not trusted, because LAN clients can spoof them.
+Single user. Password checked against a scrypt hash (salt:hash in hex) in PULSE_PASSWORD_HASH. Signed httpOnly SameSite=Lax session cookie (30 days). CSRF token header on every non-GET. Login rate limit: 5 attempts per 15 minutes per socket address, held in memory with expired keys swept every 100 attempts and a cap of 10,000 keys (least recently used evicted, a new key is never refused, D54). Tailscale identity headers are not trusted, because LAN clients can spoof them.
 
 ## Proposal engine (the only write path)
 Built in Phase 3 (apps/api/src/modules/proposals). Phase 3 covers Garmin only, and only moving a scheduled workout to another date or removing it from the schedule.
