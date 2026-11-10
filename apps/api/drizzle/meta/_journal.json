@@ -85,6 +85,13 @@
       "when": 1794236108073,
       "tag": "0011_race_weather",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1794296451380,
+      "tag": "0012_proposal_claim",
+      "breakpoints": true
     }
   ]
 }

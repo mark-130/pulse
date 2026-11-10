@@ -271,7 +271,7 @@ describe("executors never run without a confirmed proposal", () => {
   it("refuses a direct call, and no route other than confirm touches the writer", async () => {
     const s = await setup({ writes: true });
     const p = await s.created(await s.move("2026-11-10"));
-    await expect(executeGarminProposal(garminProposalSchema.parse(p), { writesEnabled: true, getWriter: s.t.writer.factory })).rejects.toThrow(/not being confirmed/);
+    await expect(executeGarminProposal(garminProposalSchema.parse(p), { writesEnabled: true, getWriter: s.t.writer.factory, holdsClaim: () => true })).rejects.toThrow(/not being confirmed/);
     await s.reject(p.id);
     await s.list();
     await s.t.get("/api/today");
@@ -379,5 +379,159 @@ describe("conflict probe (72 hour window)", () => {
     await sync(s);
     expect(await verification(s, p.id)).toBeUndefined();
     expect(checks(s)).toBe(0);
+  });
+});
+
+describe("confirmation claim: reject and expiry cannot race a live read (D63)", () => {
+  /** Starts a confirm whose Garmin read waits, and returns once the read is in flight. */
+  async function confirmWaiting(s: Awaited<ReturnType<typeof setup>>, id: string) {
+    let release!: () => void;
+    let entered!: () => void;
+    const inFlight = new Promise<void>((r) => (entered = r));
+    s.fake.defer = { tool: "get_scheduled_workouts", entered, until: new Promise<void>((r) => (release = r)) };
+    const pending = s.confirm(id);
+    await inFlight;
+    return { pending, release };
+  }
+  const actions = (s: Awaited<ReturnType<typeof setup>>) => s.audit().map((a) => a.action);
+
+  it("rejecting while the read is awaited is refused, and the confirm then applies exactly once", async () => {
+    const s = await setup({ writes: true });
+    const p = await s.created(await s.move("2026-11-10"));
+    const w = await confirmWaiting(s, p.id);
+    const rejected = await s.reject(p.id);
+    expect(rejected.status).toBe(409);
+    expect(((await rejected.json()) as { error: string }).error).toMatch(/being confirmed/);
+    expect(getProposal(s.t.handle.db, p.id)?.status).toBe("pending");
+    expect(s.t.writer.calls).toHaveLength(0);
+    w.release();
+    const res = await w.pending;
+    expect(res.status).toBe(200);
+    expect(getProposal(s.t.handle.db, p.id)?.status).toBe("applied");
+    expect(s.t.writer.calls).toHaveLength(1);
+    expect(actions(s).filter((a) => a === "proposal.rejected")).toHaveLength(0);
+    expect(actions(s).filter((a) => a === "proposal.applied")).toHaveLength(1);
+    const row = s.t.handle.db.select().from(proposalTable).all()[0];
+    expect(row?.claimToken).toBeNull();
+  });
+
+  it("expiry while the read is awaited does not expire it, and a second confirm does not write twice", async () => {
+    const s = await setup({ writes: true });
+    const p = await s.created(await s.move("2026-11-10"));
+    const w = await confirmWaiting(s, p.id);
+    s.setNow(new Date(Date.parse(p.expiresAt) + 60_000));
+    // Anything that lists proposals runs the expiry sweep.
+    const listed = await s.list();
+    expect(listed.pending.map((x) => x.id)).toContain(p.id);
+    expect(getProposal(s.t.handle.db, p.id)?.status).toBe("pending");
+    const second = await s.confirm(p.id);
+    expect(second.status).toBe(409);
+    w.release();
+    expect((await w.pending).status).toBe(200);
+    expect(getProposal(s.t.handle.db, p.id)?.status).toBe("applied");
+    expect(s.t.writer.calls).toHaveLength(1);
+    expect(actions(s)).not.toContain("proposal.expired");
+    expect(actions(s).filter((a) => a === "proposal.applied")).toHaveLength(1);
+  });
+
+  it("whatever the interleaving, the row, the audit trail and the writer agree and at most one write happens", async () => {
+    for (const interfere of ["reject", "expire"] as const) {
+      const s = await setup({ writes: true });
+      const p = await s.created(await s.move("2026-11-10"));
+      const w = await confirmWaiting(s, p.id);
+      if (interfere === "reject") await s.reject(p.id);
+      else {
+        s.setNow(new Date(Date.parse(p.expiresAt) + 60_000));
+        await s.list();
+      }
+      w.release();
+      await w.pending;
+      const status = getProposal(s.t.handle.db, p.id)?.status;
+      const acts = actions(s);
+      const writes = s.t.writer.calls.length;
+      expect(writes).toBeLessThanOrEqual(1);
+      // A write happened if and only if the proposal ended applied, and it was never also rejected or expired.
+      expect(writes === 1).toBe(status === "applied");
+      expect(acts.includes("proposal.applied")).toBe(status === "applied");
+      expect(acts.includes("proposal.rejected")).toBe(status === "rejected");
+      expect(acts.includes("proposal.expired")).toBe(status === "expired");
+      expect(acts.filter((a) => ["proposal.applied", "proposal.rejected", "proposal.expired"].includes(a))).toHaveLength(1);
+    }
+  });
+
+  it("a failed live read returns the proposal to pending, rejectable again, and still confirmable", async () => {
+    const s = await setup({ writes: true });
+    const p = await s.created(await s.move("2026-11-10"));
+    let release!: () => void;
+    let entered!: () => void;
+    const inFlight = new Promise<void>((r) => (entered = r));
+    s.fake.defer = { tool: "get_scheduled_workouts", entered, until: new Promise<void>((r) => (release = r)) };
+    s.fake.overrides = { get_scheduled_workouts: "not a schedule" };
+    const pending = s.confirm(p.id);
+    await inFlight;
+    release();
+    const res = await pending;
+    expect(res.status).toBe(502);
+    expect(getProposal(s.t.handle.db, p.id)?.status).toBe("pending");
+    expect(s.t.handle.db.select().from(proposalTable).all()[0]?.claimToken).toBeNull();
+    expect(actions(s)).toContain("proposal.confirm_blocked");
+    expect(s.t.writer.calls).toHaveLength(0);
+    s.fake.overrides = {};
+    expect((await s.confirm(p.id)).status).toBe(200);
+    expect(s.t.writer.calls).toHaveLength(1);
+  });
+
+  it("a rejected proposal can never reach the writer, and reject after the claim is released works", async () => {
+    const s = await setup({ writes: true });
+    const p = await s.created(await s.move("2026-11-10"));
+    expect((await s.reject(p.id)).status).toBe(200);
+    const res = await s.confirm(p.id);
+    expect(res.status).toBe(409);
+    expect(s.t.writer.calls).toHaveLength(0);
+    expect(s.t.writer.connects()).toBe(0);
+    expect(actions(s)).toContain("proposal.rejected");
+    expect(actions(s)).not.toContain("proposal.applied");
+  });
+
+  it("stale detection still works under a claim and releases it", async () => {
+    const s = await setup({ writes: true });
+    const p = await s.created(await s.move("2026-11-10"));
+    s.fake.overrides = { get_scheduled_workouts: s.liveWorkout("2026-11-09") };
+    const w = await confirmWaiting(s, p.id);
+    expect((await s.reject(p.id)).status).toBe(409);
+    w.release();
+    expect((await w.pending).status).toBe(409);
+    const row = s.t.handle.db.select().from(proposalTable).all()[0];
+    expect(row?.status).toBe("stale");
+    expect(row?.claimToken).toBeNull();
+    expect(s.t.writer.calls).toHaveLength(0);
+    expect(actions(s)).toContain("proposal.stale");
+  });
+
+  it("the executor refuses to write when the claim is not held, before and after connecting", async () => {
+    const s = await setup({ writes: true });
+    const p = garminProposalSchema.parse(await s.created(await s.move("2026-11-10")));
+    const { beginConfirmation, endConfirmation } = await import("../src/modules/proposals/confirmations.js");
+    beginConfirmation(p.id);
+    try {
+      await expect(executeGarminProposal(p, { writesEnabled: true, getWriter: s.t.writer.factory, holdsClaim: () => false })).rejects.toThrow(/no longer holds/);
+      expect(s.t.writer.connects()).toBe(0);
+      let checks = 0;
+      await expect(executeGarminProposal(p, { writesEnabled: true, getWriter: s.t.writer.factory, holdsClaim: () => ++checks < 2 })).rejects.toThrow(/no longer holds/);
+      expect(s.t.writer.calls).toHaveLength(0);
+    } finally {
+      endConfirmation(p.id);
+    }
+  });
+
+  it("claims left by a crashed process are cleared at boot", async () => {
+    const s = await setup({ writes: true });
+    const p = await s.created(await s.move("2026-11-10"));
+    const { claimProposal, clearStaleClaims } = await import("../src/modules/proposals/engine.js");
+    expect(claimProposal(s.t.handle.db, p.id, s.now())).not.toBeNull();
+    expect(claimProposal(s.t.handle.db, p.id, s.now())).toBeNull();
+    expect((await s.reject(p.id)).status).toBe(409);
+    expect(clearStaleClaims(s.t.handle.db)).toBe(1);
+    expect((await s.reject(p.id)).status).toBe(200);
   });
 });

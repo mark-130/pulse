@@ -73,6 +73,8 @@ export interface FakeOptions {
   empty?: string[];
   /** Tools that answer with this plain text, as the live server does for upstream errors. */
   messages?: Record<string, string>;
+  /** Holds the next call of this tool until `until` settles. `entered` fires once the call is waiting. Set it after any sync. */
+  defer?: { tool: string; entered: () => void; until: Promise<void> };
 }
 
 export interface FakeGarmin {
@@ -92,6 +94,12 @@ export function fakeGarmin(opts: FakeOptions = {}): FakeGarmin {
       return {
         async call(tool, args): Promise<GarminResult> {
           calls.push({ tool, args });
+          if (opts.defer && opts.defer.tool === tool) {
+            const d = opts.defer;
+            opts.defer = undefined;
+            d.entered();
+            await d.until;
+          }
           const failure = opts.fail?.[tool];
           if (failure) throw new Error(failure);
           const message = opts.messages?.[tool];

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull } from "drizzle-orm";
 import { APP_IMAGE, PROPOSAL_EXPIRY_HOURS, SCHEDULE_AHEAD_DAYS, isGarminProposal, proposalSchema, type BuildState, type GarminProposal, type Proposal, type WorkoutState } from "@pulse/shared";
 import { addDays, londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
@@ -136,7 +136,8 @@ export function expireDue(db: Db, now: Date): number {
   let n = 0;
   for (const p of listPending(db)) {
     if (p.expiresAt > nowIso) continue;
-    const res = db.update(proposalTable).set({ status: "expired", decidedAt: nowIso }).where(and(eq(proposalTable.id, p.id), eq(proposalTable.status, "pending"))).run();
+    // A proposal that a confirmation has claimed is never expired underneath it (D63).
+    const res = db.update(proposalTable).set({ status: "expired", decidedAt: nowIso }).where(and(eq(proposalTable.id, p.id), eq(proposalTable.status, "pending"), isNull(proposalTable.claimToken))).run();
     if (res.changes) {
       appendAudit(db, { ts: nowIso, actor: "system", action: "proposal.expired", target: targetOf(p), payload: { id: p.id }, result: "expired" });
       n++;
@@ -151,11 +152,50 @@ export function rejectProposal(db: Db, id: string, now: Date): Proposal {
   if (!p) throw new ProposalError("Unknown proposal.", 404);
   if (p.status !== "pending") throw new ProposalError(`This proposal is already ${p.status}.`, 409);
   const nowIso = now.toISOString();
+  // One atomic update decides it: it only matches a pending proposal nobody is confirming, and the audit entry
+  // is written only when it did, so the table and the audit trail cannot disagree (D63).
   db.transaction(() => {
-    db.update(proposalTable).set({ status: "rejected", decidedAt: nowIso }).where(and(eq(proposalTable.id, id), eq(proposalTable.status, "pending"))).run();
+    const res = db.update(proposalTable).set({ status: "rejected", decidedAt: nowIso }).where(and(eq(proposalTable.id, id), eq(proposalTable.status, "pending"), isNull(proposalTable.claimToken))).run();
+    if (!res.changes) throw new ProposalError(isClaimed(db, id) ? CLAIMED_TEXT : "This proposal is no longer pending.", 409);
     appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.rejected", target: targetOf(p), payload: { id }, result: "rejected" });
   });
   return getProposal(db, id) as Proposal;
+}
+
+export const CLAIMED_TEXT = "This proposal is being confirmed right now. It cannot be rejected until that finishes.";
+
+function isClaimed(db: Db, id: string): boolean {
+  return db.select({ t: proposalTable.claimToken }).from(proposalTable).where(and(eq(proposalTable.id, id), eq(proposalTable.status, "pending"), isNotNull(proposalTable.claimToken))).get() !== undefined;
+}
+
+/**
+ * Atomically claims a pending, unexpired, unclaimed proposal for one confirmation. Returns the claim token, or null when
+ * someone else holds it or it is no longer pending. Done before any outside call is awaited (D63).
+ */
+export function claimProposal(db: Db, id: string, now: Date): string | null {
+  const token = randomUUID();
+  const nowIso = now.toISOString();
+  const res = db
+    .update(proposalTable)
+    .set({ claimToken: token, claimedAt: nowIso })
+    .where(and(eq(proposalTable.id, id), eq(proposalTable.status, "pending"), isNull(proposalTable.claimToken), gt(proposalTable.expiresAt, nowIso)))
+    .run();
+  return res.changes === 1 ? token : null;
+}
+
+/** True only while this token still owns a pending proposal. Checked immediately before every outside write. */
+export function holdsClaim(db: Db, id: string, token: string): boolean {
+  return db.select({ id: proposalTable.id }).from(proposalTable).where(and(eq(proposalTable.id, id), eq(proposalTable.status, "pending"), eq(proposalTable.claimToken, token))).get() !== undefined;
+}
+
+/** Gives a claim back without deciding anything, so the proposal is pending again. No-op if the token is not the holder. */
+export function releaseClaim(db: Db, id: string, token: string): boolean {
+  return db.update(proposalTable).set({ claimToken: null, claimedAt: null }).where(and(eq(proposalTable.id, id), eq(proposalTable.status, "pending"), eq(proposalTable.claimToken, token))).run().changes === 1;
+}
+
+/** Boot: no confirmation can be running in a new process, so any claim left by a crash is dropped. Returns how many. */
+export function clearStaleClaims(db: Db): number {
+  return db.update(proposalTable).set({ claimToken: null, claimedAt: null }).where(isNotNull(proposalTable.claimToken)).run().changes;
 }
 
 /** Manual creators. Workout content is never edited, only the date. They only create proposals. */

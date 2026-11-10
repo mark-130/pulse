@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { UPDATE_OFF_TEXT, VERIFY_WINDOW_HOURS, isAppUpdate, type AppUpdateProposal, type Proposal } from "@pulse/shared";
 import type { Db } from "../../db/index.js";
@@ -8,7 +8,7 @@ import { sanitiseError } from "../../notify.js";
 import type { GarminConnector } from "../garmin/client.js";
 import { appendAudit } from "./audit.js";
 import { beginConfirmation, endConfirmation } from "./confirmations.js";
-import { expireDue, getProposal, getStateHash, stateHashOf, targetOf } from "./engine.js";
+import { CLAIMED_TEXT, claimProposal, clearStaleClaims, expireDue, getProposal, getStateHash, holdsClaim, releaseClaim, stateHashOf, targetOf } from "./engine.js";
 import type { UpdateService } from "../update/service.js";
 // The only import of an executor in the API source. eslint.config.js and a test enforce that.
 import { AppUpdateError, executeAppUpdate } from "./executors/app.js";
@@ -41,10 +41,16 @@ export interface ConfirmDeps {
   onApplied?: () => void;
 }
 
+const CLAIMED_LOST_TEXT = "This confirmation no longer holds the proposal. Nothing was sent.";
+
 const scrub = (text: string, token: string): string => (token ? text.replaceAll(token, "[redacted]") : text);
 
-function decide(db: Db, id: string, status: "applied" | "failed" | "stale", nowIso: string, result: unknown): void {
-  db.update(proposalTable).set({ status, decidedAt: nowIso, result }).where(and(eq(proposalTable.id, id), eq(proposalTable.status, "pending"))).run();
+/**
+ * Records the outcome, only while this confirmation still holds the claim (D63), and drops the claim in the same statement.
+ * Returns false when it did not hold it, in which case nothing was changed and the caller must not audit a decision.
+ */
+function decide(db: Db, id: string, token: string, status: "applied" | "failed" | "stale", nowIso: string, result: unknown): boolean {
+  return db.update(proposalTable).set({ status, decidedAt: nowIso, result, claimToken: null, claimedAt: null }).where(and(eq(proposalTable.id, id), eq(proposalTable.status, "pending"), eq(proposalTable.claimToken, token))).run().changes === 1;
 }
 
 /**
@@ -53,6 +59,8 @@ function decide(db: Db, id: string, status: "applied" | "failed" | "stale", nowI
  */
 export function registerConfirmRoute(app: Hono, deps: ConfirmDeps): void {
   const { db } = deps;
+  // A new process has no confirmation in flight, so a claim left by a crash is dropped here (D63).
+  clearStaleClaims(db);
   const clock = deps.now ?? (() => new Date());
 
   /**
@@ -61,15 +69,16 @@ export function registerConfirmRoute(app: Hono, deps: ConfirmDeps): void {
    * audit backup taken, save as applied and audit called, then call Watchtower. Watchtower stops this process while the
    * request is open, so the outcome is settled later from the running build (outcome.ts).
    */
-  async function confirmAppUpdate(c: Context, p: AppUpdateProposal, now: Date) {
+  async function confirmAppUpdate(c: Context, p: AppUpdateProposal, now: Date, token: string) {
     const nowIso = now.toISOString();
     const wiring = deps.app;
     const target = targetOf(p);
     if (!wiring || wiring.token.trim() === "") return c.json({ error: UPDATE_OFF_TEXT }, 409);
     const running = { sha: wiring.service.build.sha, builtAt: wiring.service.build.builtAt };
     if (stateHashOf(running) !== getStateHash(db, p.id)) {
-      decide(db, p.id, "stale", nowIso, { message: "The app is on a different build than when this was proposed. Nothing was sent." });
-      appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.stale", target, payload: { id: p.id, running }, result: "stale" });
+      if (decide(db, p.id, token, "stale", nowIso, { message: "The app is on a different build than when this was proposed. Nothing was sent." })) {
+        appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.stale", target, payload: { id: p.id, running }, result: "stale" });
+      }
       return c.json({ error: "The app is on a different build than when this was proposed. Nothing was sent.", proposal: getProposal(db, p.id) }, 409);
     }
     let backupFile: string | null = null;
@@ -88,7 +97,8 @@ export function registerConfirmRoute(app: Hono, deps: ConfirmDeps): void {
           calling: () =>
             db.transaction(() => {
               const update = { state: "requested" as const, calledAt: nowIso, backup: backupFile, watchtowerStatus: null, resolvedAt: null, runningSha: null };
-              decide(db, p.id, "applied", nowIso, { mode: "live", message: "Watchtower is being called. The app is expected to restart.", update });
+              // Throws before Watchtower is called if the claim is no longer held, which rolls this back.
+              if (!decide(db, p.id, token, "applied", nowIso, { mode: "live", message: "Watchtower is being called. The app is expected to restart.", update })) throw new AppUpdateError(CLAIMED_LOST_TEXT);
               appendAudit(db, { ts: nowIso, actor: "system", action: "update.called", target, payload: { id: p.id }, result: "calling" });
               appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.applied", target, payload: { id: p.id, before: p.before, after: p.after }, result: "live" });
             }),
@@ -106,8 +116,13 @@ export function registerConfirmRoute(app: Hono, deps: ConfirmDeps): void {
     } catch (err) {
       const message = scrub(err instanceof AppUpdateError ? err.message : `The update request failed. ${sanitiseError(err)}`, wiring.token);
       db.transaction(() => {
-        db.update(proposalTable).set({ status: "failed", decidedAt: nowIso, result: { error: message } }).where(and(eq(proposalTable.id, p.id), inArray(proposalTable.status, ["pending", "applied"]))).run();
-        appendAudit(db, { ts: nowIso, actor: "system", action: "proposal.failed", target, payload: { id: p.id }, result: message });
+        // Still ours if it is pending under our claim, or already saved as applied by the calling hook above.
+        const res = db
+          .update(proposalTable)
+          .set({ status: "failed", decidedAt: nowIso, result: { error: message }, claimToken: null, claimedAt: null })
+          .where(and(eq(proposalTable.id, p.id), or(and(eq(proposalTable.status, "pending"), eq(proposalTable.claimToken, token)), eq(proposalTable.status, "applied"))))
+          .run();
+        if (res.changes) appendAudit(db, { ts: nowIso, actor: "system", action: "proposal.failed", target, payload: { id: p.id }, result: message });
       });
       deps.log.error({ id: p.id, err: message }, "app update failed");
       return c.json({ error: message, proposal: getProposal(db, p.id) }, 502);
@@ -126,8 +141,17 @@ export function registerConfirmRoute(app: Hono, deps: ConfirmDeps): void {
     if (p.status !== "pending") return c.json({ error: `This proposal is ${p.status}. Nothing was sent.`, proposal: p }, 409);
     if (!beginConfirmation(id)) return c.json({ error: "This proposal is already being confirmed." }, 409);
 
+    // Claim the proposal in the database before anything is awaited. While the claim is held, reject and expiry
+    // cannot change it, and every outcome below only applies if this token still holds it (D63).
+    let token: string | null = null;
     try {
-      if (isAppUpdate(p)) return await confirmAppUpdate(c, p, now);
+      token = claimProposal(db, id, now);
+      if (!token) {
+        const now2 = getProposal(db, id);
+        if (now2 && now2.status === "applied") return c.json({ proposal: now2 });
+        return c.json({ error: now2 && now2.status === "pending" ? CLAIMED_TEXT : `This proposal is ${now2?.status ?? "gone"}. Nothing was sent.`, proposal: now2 }, 409);
+      }
+      if (isAppUpdate(p)) return await confirmAppUpdate(c, p, now, token);
       const target = targetOf(p);
       let live: Proposal["before"] | null;
       try {
@@ -140,16 +164,19 @@ export function registerConfirmRoute(app: Hono, deps: ConfirmDeps): void {
       }
       const storedHash = getStateHash(db, id);
       if (live === null || stateHashOf(live) !== storedHash) {
-        decide(db, id, "stale", nowIso, { live, message: live === null ? "The workout is no longer on the Garmin schedule." : "The workout changed in Garmin after this was proposed." });
-        appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.stale", target, payload: { id, live }, result: "stale" });
+        if (decide(db, id, token, "stale", nowIso, { live, message: live === null ? "The workout is no longer on the Garmin schedule." : "The workout changed in Garmin after this was proposed." })) {
+          appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.stale", target, payload: { id, live }, result: "stale" });
+        }
         return c.json({ error: "The workout changed in Garmin since this was proposed. Nothing was sent.", proposal: getProposal(db, id) }, 409);
       }
 
       try {
-        const out = await executeGarminProposal(p, { writesEnabled: deps.writesEnabled, getWriter: deps.getWriter });
+        const held = token;
+        const out = await executeGarminProposal(p, { writesEnabled: deps.writesEnabled, getWriter: deps.getWriter, holdsClaim: () => holdsClaim(db, id, held) });
         const result = { mode: out.mode, message: out.message, ...(out.mode === "live" ? { verification: { state: "waiting", matches: 0, checks: [], lastConfirmedAt: null, windowEndsAt: new Date(now.getTime() + VERIFY_WINDOW_HOURS * 3_600_000).toISOString() } } : {}) };
         db.transaction(() => {
-          decide(db, id, "applied", nowIso, result);
+          // The write has happened, so the audit entry is written whatever decide reports.
+          decide(db, id, held, "applied", nowIso, result);
           appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.applied", target, payload: { id, before: p.before, after: p.after }, result: out.mode === "dry_run" ? "dry run" : "live" });
         });
         if (out.mode === "live") {
@@ -162,14 +189,16 @@ export function registerConfirmRoute(app: Hono, deps: ConfirmDeps): void {
         return c.json({ proposal: getProposal(db, id) });
       } catch (err) {
         const error = sanitiseError(err);
+        const failedToken = token;
         db.transaction(() => {
-          decide(db, id, "failed", nowIso, { error });
-          appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.failed", target, payload: { id }, result: error });
+          if (decide(db, id, failedToken, "failed", nowIso, { error })) appendAudit(db, { ts: nowIso, actor: "user", action: "proposal.failed", target, payload: { id }, result: error });
         });
         deps.log.error({ id, err: error }, "proposal execution failed");
         return c.json({ error: "Garmin did not accept the change. See the history for details.", proposal: getProposal(db, id) }, 502);
       }
     } finally {
+      // Any path that did not decide the proposal (a blocked read, an unexpected error) gives it back as pending.
+      if (token) releaseClaim(db, id, token);
       endConfirmation(id);
     }
   });

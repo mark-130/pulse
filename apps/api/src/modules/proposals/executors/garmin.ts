@@ -55,7 +55,11 @@ export interface ExecutionResult {
 export interface ExecutorDeps {
   writesEnabled: boolean;
   getWriter: GarminWriterFactory;
+  /** True only while the calling confirmation still owns the pending proposal (D63). Checked right before the write. */
+  holdsClaim: () => boolean;
 }
+
+const CLAIM_LOST = "Refusing to run: this confirmation no longer holds the proposal.";
 
 /** Runs one confirmed proposal. With writes off it records a dry run and does not touch Garmin at all, not even a connection. */
 export async function executeGarminProposal(p: GarminProposal, deps: ExecutorDeps): Promise<ExecutionResult> {
@@ -63,8 +67,11 @@ export async function executeGarminProposal(p: GarminProposal, deps: ExecutorDep
   if (p.status !== "pending") throw new Error("Refusing to run: the proposal is not pending.");
   if (!deps.writesEnabled) return { mode: "dry_run", message: `${DRY_RUN_TEXT}. The change was recorded only.` };
 
+  if (!deps.holdsClaim()) throw new Error(CLAIM_LOST);
   const writer = await deps.getWriter();
   try {
+    // Connecting is awaited, so check again immediately before the only call that can write.
+    if (!deps.holdsClaim()) throw new Error(CLAIM_LOST);
     if (p.kind === "garmin.reschedule") {
       if (!p.after) throw new Error("A reschedule needs a new date.");
       const res = await writer.call("reschedule_workout", { scheduled_workout_id: Number(p.before.scheduledId), calendar_date: p.after.date });

@@ -95,6 +95,9 @@ export const proposal = sqliteTable("proposal", {
   expiresAt: text("expires_at").notNull(),
   decidedAt: text("decided_at"),
   result: json("result"),
+  /** Set while one confirmation owns this pending proposal (D63). Reject and expiry skip a claimed row. Cleared on every outcome and at boot. */
+  claimToken: text("claim_token"),
+  claimedAt: text("claimed_at"),
 });
 
 /** Pulse-owned race metadata. Never overwritten by sync. meta_key matches race.event_key. See D29. */
