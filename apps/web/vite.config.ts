@@ -40,10 +40,11 @@ export default defineConfig({
       workbox: {
         navigateFallbackDenylist: [/^\/api\//],
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
-        // Offline shows the last saved snapshot. Cleared on sign out.
+        // Offline shows the last saved snapshot. Cleared on sign out and when the server says the session is gone.
+        // /api/auth/session is deliberately not cached: a saved "signed in" answer would hide a revoked session.
         runtimeCaching: [
           {
-            urlPattern: ({ url }: { url: URL }) => /^\/api\/(today|week|trends|races|sync\/status|auth\/session)$/.test(url.pathname),
+            urlPattern: ({ url }: { url: URL }) => /^\/api\/(today|week|trends|races|sync\/status)$/.test(url.pathname),
             handler: "NetworkFirst",
             options: { cacheName: "pulse-api", networkTimeoutSeconds: 4, expiration: { maxEntries: 40, maxAgeSeconds: 7 * 24 * 3600 }, cacheableResponse: { statuses: [200] } },
           },

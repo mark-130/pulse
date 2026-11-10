@@ -98,7 +98,7 @@ Built in Phase 3 (apps/api/src/modules/proposals). Phase 3 covers Garmin only, a
 - The header pill and the full banner use the oldest of plan and readiness. A stale activities or trends group alone never shows the full banner. It shows a quiet inline note on the cards that use it. Cards show the sync time of the groups they use.
 - A future workout that Garmin stops returning is removed. Past workouts, activities and raw snapshots are kept as history. Races Garmin stops returning are marked inactive.
 - Nightly backup at 03:10 Europe/London: VACUUM INTO /data/backups/pulse-YYYYMMDD-HHmm.db, newest 7 kept.
-- Offline: the service worker keeps the last good response of the read endpoints in the pulse-api cache (network first). Sign out deletes that cache.
+- Offline: the service worker keeps the last good response of the read endpoints in the pulse-api cache (network first). Sign out deletes that cache. So does any 401 and any session check that says signed out (D64). The session answer is never cached. The page re-checks the session on focus, on reconnect and every 5 minutes.
 - ntfy alert after 3 consecutive failures, at most once per day per job.
 
 ## Security and ops

@@ -6,6 +6,15 @@ export const setCsrfToken = (t: string | null) => {
   csrfToken = t;
 };
 
+/**
+ * Called once for any 401 from a protected request, so a revoked session is handled in one place (PULSE-006).
+ * The sign in request itself is left out: a wrong password is an ordinary 401.
+ */
+let onUnauthorized: (() => void) | null = null;
+export const setUnauthorizedHandler = (fn: (() => void) | null) => {
+  onUnauthorized = fn;
+};
+
 export class ApiRequestError extends Error {
   constructor(
     message: string,
@@ -29,6 +38,7 @@ export async function api<T>(path: string, schema: z.ZodType<T>, init: { method?
     throw new ApiRequestError(`Cannot reach ${APP_NAME}. Check your connection.`, 0);
   }
   const data: unknown = await res.json().catch(() => ({}));
+  if (res.status === 401 && !path.startsWith("/api/auth/login")) onUnauthorized?.();
   if (!res.ok) {
     const msg = typeof data === "object" && data !== null && "error" in data && typeof data.error === "string" ? data.error : "Something went wrong.";
     const failure = typeof data === "object" && data !== null && "failure" in data ? aiFailureSchema.safeParse(data.failure) : null;
