@@ -5,6 +5,7 @@ import { NavLink, Outlet } from "react-router";
 import { formatTime } from "@/lib/format";
 import { useSyncStatus } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { Footer } from "./Footer";
 import { LogoMark } from "./LogoMark";
 import { Orb } from "./Orb";
 import { StaleBanner } from "./StaleBanner";
@@ -103,6 +104,7 @@ export function Layout() {
         <Header />
         <StaleBanner />
         <Outlet />
+        <Footer />
       </main>
       <nav
         aria-label="Main"

@@ -42,3 +42,6 @@ body {
 @keyframes orb-glow { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
 
 .focus-ring:focus-visible, a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The footer signature steps aside for any open modal dialog (sync sheet, confirm dialogs). */
+body:has(dialog[open]) .app-footer { display: none; }

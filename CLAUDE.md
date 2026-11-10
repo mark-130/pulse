@@ -24,6 +24,7 @@ pnpm workspace. apps/web: React 19, Vite, TypeScript strict, Tailwind v4, shadcn
 - Store times as UTC ISO strings. Display Europe/London, dd/mm/yyyy, 24 hour clock, metric (km, min/km).
 - Design source of truth is docs/DESIGN.md. Tokens live in apps/web/src/styles/tokens.css. Fonts are self-hosted. The orb is reserved for AI surfaces.
 - Validate every API payload with zod on both sides. No `any`.
+- Footer tagline: Factum a Marco pro Marco, via the shared Footer component.
 - Config only through env vars, validated at boot, fail fast with a clear message.
 - SQLite lives in /data (volume). Never commit *.db, .env, tokens or backups.
 - Copy and docs: UK English, no em dashes or en dashes (UI, docs, comments, commits). Use full stops, commas, colons, hyphens. No hype words.

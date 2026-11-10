@@ -1,5 +1,6 @@
 import { APP_NAME } from "@pulse/shared";
 import { useState, type FormEvent } from "react";
+import { Footer } from "@/components/Footer";
 import { LogoMark } from "@/components/LogoMark";
 import { Button } from "@/components/ui";
 import { ApiRequestError } from "@/lib/api";
@@ -25,7 +26,8 @@ export function Login() {
   }
 
   return (
-    <div className="grid min-h-dvh place-items-center px-5 py-10">
+    <div className="flex min-h-dvh flex-col px-5 py-10">
+      <div className="grid flex-1 place-items-center">
       <form onSubmit={submit} className="card w-full max-w-sm space-y-5 p-6">
         <div className="flex items-center gap-3">
           <LogoMark size={36} />
@@ -52,6 +54,8 @@ export function Login() {
           {busy ? "Signing in" : "Sign in"}
         </Button>
       </form>
+      </div>
+      <Footer />
     </div>
   );
 }
