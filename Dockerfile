@@ -8,9 +8,10 @@ COPY apps/web/package.json apps/web/
 RUN pnpm install --frozen-lockfile
 COPY packages packages
 COPY apps apps
+# Pins the runtime install to the versions pnpm-lock.yaml resolved (D66).
+COPY scripts/runtime-manifest.mjs scripts/
 RUN pnpm build \
- && mkdir /out \
- && node -e "const v=require('./apps/api/package.json').dependencies['better-sqlite3'];require('fs').writeFileSync('/out/package.json',JSON.stringify({name:'pulse-runtime',private:true,type:'module',dependencies:{'better-sqlite3':v}}))"
+ && node scripts/runtime-manifest.mjs /out
 
 FROM node:22-alpine AS runtime
 # Runtime assumptions (D58), so the container can be locked down from deploy/docker-compose.yml:
