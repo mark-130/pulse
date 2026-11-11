@@ -45,6 +45,8 @@ export function primaryAction(s: HistoryStatus): { label: string; action: "start
 export const finishText = (s: HistoryStatus): string | null => (s.state === "running" && s.estimatedFinish ? `Estimated finish about ${formatClockDay(s.estimatedFinish)}.` : null);
 
 export const periodText = (from: string, to: string): string => `${formatDate(from)} to ${formatDate(to)}`;
+/** Once an import exists its range is fixed, and the newest days are the routine sync's job (D70). Null before the first Start. */
+export const routineSyncLine = (s: HistoryStatus): string | null => (s.state === "idle" ? null : `Days after ${formatDate(s.to)} come from the routine sync.`);
 export { formatTime };
 
 /** The mean of the values in the 7 calendar days ending on each point's day. */

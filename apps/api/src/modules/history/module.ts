@@ -4,7 +4,7 @@ import { TREND_RANGES, type Module } from "@pulse/shared";
 import type { Db } from "../../db/index.js";
 import type { Logger } from "../../logger.js";
 import type { GarminConnector } from "../garmin/client.js";
-import { loadState, runImport, saveState, type EngineDeps, type Live } from "./engine.js";
+import { importRange, loadState, newRange, runImport, saveState, type EngineDeps, type Live } from "./engine.js";
 import { getHistoryStatus, getHistorySummary, getSeries, getYearOnYear } from "./queries.js";
 
 const TZ = "Europe/London";
@@ -59,12 +59,19 @@ export function createHistoryModule(deps: HistoryDeps): { module: Module<Hono>; 
   };
 
   const start = () => {
+    // A state from before D70 gets its range stored first, so it is kept below.
+    importRange(deps.db, clock(), deps.days);
     const st = loadState(deps.db, deps.days);
     if (st.state === "running" && loop) return;
     // A fresh Start (after a stop or a finished run) clears what needed attention, so only the failed windows and the windows
     // not yet attempted run, once each. Resuming a pause keeps it, so a kind that needs attention is not retried mid-run.
     const resuming = st.state === "paused" || st.state === "running";
-    saveState(deps.db, { state: "running", days: deps.days, reason: null, pausedUntil: null, consecutiveFailures: 0, rateLimitStreak: 0, attention: resuming ? st.attention : {}, startedAt: st.startedAt ?? clock().toISOString() }, deps.days);
+    // The range is fixed when the import is created (D70). Resuming, and starting again after a failure or a stop, keep it.
+    // A new range (the last `days` days ending today) is made only for a first Start or when the configured length changed, and
+    // finished windows inside it are not fetched again.
+    const keep = st.rangeFrom !== null && st.rangeTo !== null && (resuming || (st.state !== "idle" && st.days === deps.days));
+    const range = keep ? { rangeFrom: st.rangeFrom, rangeTo: st.rangeTo } : newRange(clock(), deps.days);
+    saveState(deps.db, { ...range, state: "running", days: deps.days, reason: null, pausedUntil: null, consecutiveFailures: 0, rateLimitStreak: 0, attention: resuming ? st.attention : {}, startedAt: st.startedAt ?? clock().toISOString() }, deps.days);
     kick();
   };
 

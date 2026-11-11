@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { and, asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { HISTORY_KINDS, historySeriesSchema, historyStatusSchema, yearOnYearSchema } from "@pulse/shared";
-import { activity, backfillProgress, dailyReading, garminSnapshot, vo2maxPoint } from "../src/db/schema.js";
+import { activity, backfillProgress, dailyReading, garminSnapshot, settings, vo2maxPoint } from "../src/db/schema.js";
 import { GARMIN_READ_TOOLS, type GarminConnector, type GarminReadTool, type GarminResult } from "../src/modules/garmin/client.js";
 import { GARMIN_WRITE_TOOLS } from "../src/modules/proposals/executors/garmin.js";
 import { FAILED_WINDOWS_PER_KIND, PER_DAY_CONCURRENCY, RATE_BASE_MS, WINDOW_PAUSE_MS, doneDays, loadState, nextWindow, runOrder, saveState } from "../src/modules/history/engine.js";
@@ -72,11 +72,11 @@ function generate(tool: string, a: Record<string, unknown>): GarminResult {
   }
 }
 
-async function setup(o: { handler?: Handler; days?: number; busy?: () => boolean; rate?: { baseMs: number; pauseMs: number }; logs?: string[] } = {}) {
+async function setup(o: { clock?: () => Date; handler?: Handler; days?: number; busy?: () => boolean; rate?: { baseMs: number; pauseMs: number }; logs?: string[] } = {}) {
   const sleeps: number[] = [];
   const g = scripted(o.handler);
   const t = await makeGarminApp({
-    clock,
+    clock: o.clock ?? clock,
     env: { PULSE_HISTORY_DAYS: String(o.days ?? 60), ANTHROPIC_API_KEY: FAKE_KEY },
     historyConnect: g.connect,
     historyBusy: o.busy,
@@ -846,5 +846,104 @@ describe("history: charts, year on year and the AI summary", () => {
     db.insert(backfillProgress).values({ kind: "sleep", windowStart: "2026-10-01", windowEnd: "2026-10-05", status: "done", rows: 5, reason: null, updatedAt: "x" }).run();
     db.insert(backfillProgress).values({ kind: "sleep", windowStart: "2026-10-06", windowEnd: "2026-10-10", status: "failed", rows: 0, reason: "x", updatedAt: "x" }).run();
     expect([...doneDays(db, "sleep", "2026-10-03", "2026-10-20")].sort()).toEqual(["2026-10-03", "2026-10-04", "2026-10-05"]);
+  });
+});
+
+describe("history import: the range is fixed when the import is created (D70)", () => {
+  const DAY = 86_400_000;
+  const fresh = async (days = 60) => {
+    let now = NOW;
+    const s = await setup({ days, clock: () => now });
+    return { ...s, advance: (d: number) => void (now = new Date(now.getTime() + d * DAY)), now: () => now };
+  };
+  const key = (st: Awaited<ReturnType<Awaited<ReturnType<typeof fresh>>["status"]>>) => ({ state: st.state, from: st.from, to: st.to, days: st.days, kinds: st.kinds.map((k) => [k.id, k.state, k.done, k.total]) });
+
+  it("after completion, days passing leave the card Complete, every kind Done, counts and range unchanged, with no new calls", async () => {
+    const s = await fresh();
+    const first = await s.run();
+    expect(first.state).toBe("complete");
+    expect(first.kinds.every((k) => k.state === "done" && k.done === 60 && k.total === 60)).toBe(true);
+    const calls = s.g.calls.length;
+    for (const d of [1, 2, 5]) {
+      s.advance(d);
+      const later = await s.status();
+      expect(key(later)).toEqual(key(first));
+      await s.t.history.tick();
+      await s.t.history.idle();
+    }
+    expect(key(await s.status())).toEqual(key(first));
+    expect(s.g.calls.length).toBe(calls);
+  });
+
+  it("pressing Start on a complete import with the same length fetches nothing and keeps the range", async () => {
+    const s = await fresh();
+    const first = await s.run();
+    s.advance(3);
+    const calls = s.g.calls.length;
+    const again = await s.run();
+    expect(key(again)).toEqual(key(first));
+    expect(s.g.calls.length).toBe(calls);
+  });
+
+  it("a stopped import started again keeps its range, so it does not slide forward", async () => {
+    const s = await fresh();
+    const first = await s.run();
+    saveState(s.t.handle.db, { state: "stopped", reason: "Garmin could not be reached." }, 60);
+    s.advance(4);
+    const again = await s.run();
+    expect(again.from).toBe(first.from);
+    expect(again.to).toBe(first.to);
+  });
+
+  it("a longer range is a new import ending today, and never refetches a finished day", async () => {
+    const s = await fresh(60);
+    const first = await s.run();
+    s.advance(2);
+    const before = s.g.calls.length;
+    const { createHistoryModule } = await import("../src/modules/history/module.js");
+    const longer = createHistoryModule({ db: s.t.handle.db, connect: s.g.connect, days: 90, log: createLogger("silent"), now: s.now, sleep: async () => undefined, busy: () => false });
+    const { Hono } = await import("hono");
+    const app = new Hono();
+    longer.module.routes?.(app);
+    await app.request("/api/history/start", { method: "POST" });
+    await longer.idle();
+    const st = historyStatusSchema.parse(await (await app.request("/api/history")).json());
+    expect(st.state).toBe("complete");
+    expect(st.days).toBe(90);
+    expect(st.to).toBe(addDays(first.to, 2));
+    expect(st.from).toBe(addDays(st.to, -89));
+    expect(st.kinds.every((k) => k.state === "done" && k.done === 90)).toBe(true);
+    // Every call made by the second run lies wholly outside the days the first run finished.
+    const rangeTools = new Set(["get_sleep_summary_range", "get_hrv_trend", "get_body_battery", "get_vo2max_trend", "get_endurance_score", "get_hill_score", "get_lactate_threshold", "get_activities_by_date"]);
+    for (const c of s.g.calls.slice(before)) {
+      const from = String(c.args.start_date ?? c.args.date ?? "");
+      const to = String(c.args.end_date ?? c.args.date ?? from);
+      if (!from || (!rangeTools.has(c.tool) && c.args.date === undefined)) continue;
+      expect(to < first.from || from > first.to, `${c.tool} ${from} to ${to}`).toBe(true);
+    }
+  });
+
+  it("an import made before D70 has no stored range: it is derived once from the newest finished window and then fixed", async () => {
+    const s = await fresh();
+    const first = await s.run();
+    const row = s.t.handle.db.select().from(settings).where(eq(settings.key, "history_import")).get();
+    const legacy = { ...(row?.value as Record<string, unknown>) };
+    delete legacy.rangeFrom;
+    delete legacy.rangeTo;
+    s.t.handle.db.update(settings).set({ value: legacy }).where(eq(settings.key, "history_import")).run();
+    s.advance(2);
+    const later = await s.status();
+    expect(key(later)).toEqual(key(first));
+    expect(loadState(s.t.handle.db, 60)).toMatchObject({ rangeFrom: first.from, rangeTo: first.to });
+  });
+
+  it("before the first Start there is nothing to fix: the range follows today, and Start fixes it", async () => {
+    const s = await fresh();
+    const idle = await s.status();
+    s.advance(1);
+    expect((await s.status()).to).toBe(addDays(idle.to, 1));
+    const done = await s.run();
+    s.advance(3);
+    expect((await s.status()).to).toBe(done.to);
   });
 });

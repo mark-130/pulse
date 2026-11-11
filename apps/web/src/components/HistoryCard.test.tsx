@@ -24,6 +24,15 @@ describe("history import card", () => {
     expect(progressText(kinds[1] as never)).toBe("Sleep: 214 of 730 days");
   });
 
+  it("says days after the fixed end date come from the routine sync, in the card's date style, and offers no import button when complete (D70)", () => {
+    const done = { ...base, state: "complete" as const, kinds: kinds.map((k) => ({ ...k, done: 730, state: "done" as const, failed: 0 })) };
+    const h = html(done);
+    expect(h).toContain("Days after 09/11/2026 come from the routine sync.");
+    expect(h).toContain("Covers 730 days, 10/11/2024 to 09/11/2026.");
+    expect(h).not.toContain("<button");
+    expect(html(base)).not.toContain("come from the routine sync");
+  });
+
   it("offers Start when idle, Pause while running, Resume when paused, and Start again after a stop", () => {
     expect(primaryAction(base)).toEqual({ label: "Start", action: "start" });
     expect(primaryAction({ ...base, state: "running" })).toEqual({ label: "Pause", action: "pause" });

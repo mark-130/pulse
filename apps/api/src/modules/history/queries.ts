@@ -4,7 +4,7 @@ import { addDays, londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { activity, backfillProgress, dailyReading, garminSnapshot, vo2maxPoint } from "../../db/schema.js";
 import { READING_KINDS } from "../ai/readings.js";
-import { doneDays, loadState, type Live } from "./engine.js";
+import { doneDays, importRange, loadState, type Live } from "./engine.js";
 import { RANGE_LIMITS } from "./kinds.js";
 
 export interface Point {
@@ -65,9 +65,8 @@ const NEEDS_ATTENTION = "Some windows failed.";
 
 export function getHistoryStatus(db: Db, now: Date, days: number, live: Live): HistoryStatus {
   const st = loadState(db, days);
-  const total = st.days > 0 ? st.days : days;
-  const to = londonDate(now);
-  const from = addDays(to, -(total - 1));
+  // Fixed when the import was created, not recomputed from today (D70).
+  const { from, to, days: total } = importRange(db, now, days);
   const rows = db.select().from(backfillProgress).all();
   let doneCost = 0;
   let remainingCost = 0;

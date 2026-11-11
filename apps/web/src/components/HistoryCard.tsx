@@ -1,7 +1,7 @@
 import type { HistoryStatus } from "@pulse/shared";
 import { formatDate } from "@/lib/format";
 import { TriangleAlert } from "lucide-react";
-import { finishText, issuesLine, kindStateText, periodText, primaryAction, progressText, stateLine } from "@/lib/history";
+import { finishText, issuesLine, kindStateText, periodText, primaryAction, progressText, routineSyncLine, stateLine } from "@/lib/history";
 import { useHistory, useHistoryAction } from "@/lib/queries";
 import { Button, Card } from "./ui";
 
@@ -46,6 +46,7 @@ export function HistoryView({ s, pending, onAction }: HistoryViewProps) {
       <div className="space-y-3 text-[15px]">
         <p>Reads your Garmin history once, gently, so Trends can compare this year with last year. It reads from Garmin and never changes anything there.</p>
         <p className="t-secondary">Covers {s.days} days, {periodText(s.from, s.to)}. Race predictions, personal records and heart rate zones are not imported: Garmin keeps no history for them.</p>
+        {routineSyncLine(s) && <p className="t-secondary">{routineSyncLine(s)}</p>}
         <p role="status" className="font-semibold">{stateLine(s)}</p>
         {issuesLine(s) && <p className="t-secondary flex items-start gap-1"><TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-[color:var(--state-warn)]" />{issuesLine(s)}</p>}
         {finish && <p className="t-secondary">{finish}</p>}

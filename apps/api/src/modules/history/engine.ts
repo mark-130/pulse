@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, ne } from "drizzle-orm";
+import { and, eq, gte, lte, max, ne } from "drizzle-orm";
 import { HISTORY_KINDS, type HistoryKindId, type HistoryState } from "@pulse/shared";
 import { addDays, daysBetween, londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
@@ -44,9 +44,21 @@ export interface ImportState {
   attention: Record<string, string>;
   /** The window size that worked for a kind after Garmin said the range was too big, so it is not asked for again (D60). */
   windowSizes: Record<string, number>;
+  /**
+   * The dates this import covers, fixed when it is created and never recomputed from today (D70). The days after rangeTo
+   * belong to the routine sync. Null on a state from before D70, or one that has not started: see importRange.
+   */
+  rangeFrom: string | null;
+  rangeTo: string | null;
 }
 
-export const freshState = (days: number): ImportState => ({ state: "idle", days, startedAt: null, activeMs: 0, reason: null, pausedUntil: null, consecutiveFailures: 0, rateLimitStreak: 0, attention: {}, windowSizes: {} });
+export const freshState = (days: number): ImportState => ({ state: "idle", days, startedAt: null, activeMs: 0, reason: null, pausedUntil: null, consecutiveFailures: 0, rateLimitStreak: 0, attention: {}, windowSizes: {}, rangeFrom: null, rangeTo: null });
+
+/** A range for a new import: the last `days` days ending today (London). */
+export const newRange = (now: Date, days: number): { rangeFrom: string; rangeTo: string } => {
+  const rangeTo = londonDate(now);
+  return { rangeFrom: addDays(rangeTo, -(days - 1)), rangeTo };
+};
 
 export function loadState(db: Db, days: number): ImportState {
   const row = db.select().from(settings).where(eq(settings.key, STATE_KEY)).get();
@@ -57,6 +69,24 @@ export function saveState(db: Db, patch: Partial<ImportState>, days: number): Im
   const next = { ...loadState(db, days), ...patch };
   db.insert(settings).values({ key: STATE_KEY, value: next }).onConflictDoUpdate({ target: settings.key, set: { value: next } }).run();
   return next;
+}
+
+/**
+ * The covered range of the import. Fixed once stored. A state from before D70 has none: if windows were already done, the range
+ * ends on the newest day a window reached (that is the day the import ran) and is stored now, so it stops sliding. Before the
+ * first Start there is nothing to fix, so the range is the last `days` days ending today and is not stored.
+ */
+export function importRange(db: Db, now: Date, days: number): { from: string; to: string; days: number } {
+  const st = loadState(db, days);
+  if (st.rangeFrom && st.rangeTo) return { from: st.rangeFrom, to: st.rangeTo, days: daysBetween(st.rangeFrom, st.rangeTo) + 1 };
+  const total = st.days > 0 ? st.days : days;
+  const today = londonDate(now);
+  const last = db.select({ m: max(backfillProgress.windowEnd) }).from(backfillProgress).where(eq(backfillProgress.status, "done")).get()?.m ?? null;
+  if (last === null) return { from: addDays(today, -(total - 1)), to: today, days: total };
+  const to = last < today ? last : today;
+  const from = addDays(to, -(total - 1));
+  saveState(db, { rangeFrom: from, rangeTo: to }, days);
+  return { from, to, days: total };
 }
 
 export interface Live {
@@ -246,8 +276,8 @@ export function runOrder(db: Db, from: string, to: string): HistoryKindId[] {
 
 /** Runs the import until every kind has been tried, or it is paused, rate limited for an hour, or stopped by a failed login or an unreachable Garmin. */
 export async function runImport(deps: EngineDeps): Promise<ImportState["state"]> {
-  const today = londonDate(deps.now());
-  const from = addDays(today, -(deps.days - 1));
+  // The range was fixed when the import was created (D70). It does not move with the clock.
+  const { from, to: today, days: total } = importRange(deps.db, deps.now(), deps.days);
   const rateBase = deps.rateBaseMs ?? RATE_BASE_MS;
   const ratePause = deps.ratePauseMs ?? RATE_PAUSE_MS;
   let lastTick = deps.now().getTime();
@@ -363,7 +393,7 @@ export async function runImport(deps: EngineDeps): Promise<ImportState["state"]>
       }
     }
     // Every kind has had its turn. Any day still not covered belongs to a failed window: that is "complete with issues".
-    const issues = HISTORY_KINDS.filter((k) => doneDays(deps.db, k.id, from, today).size < deps.days).map((k) => k.label);
+    const issues = HISTORY_KINDS.filter((k) => doneDays(deps.db, k.id, from, today).size < total).map((k) => k.label);
     if (issues.length > 0) {
       saveState(deps.db, { state: "complete_with_issues", reason: `Some windows failed: ${issues.join(", ")}. Start again retries only those.`, pausedUntil: null }, deps.days);
       return "complete_with_issues";
