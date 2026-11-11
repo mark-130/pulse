@@ -130,3 +130,46 @@ describe("atomic AI cost reservation (D57)", () => {
     expect(held(db)).toHaveLength(0);
   });
 });
+
+describe("London month boundary (PULSE-002, D66)", () => {
+  const row = (db: ReturnType<typeof setup>["db"], ts: string, cost: number) =>
+    db.insert(aiUsage).values({ ts, feature: "ask", model: "claude-sonnet-5-5", inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costGbp: cost }).run();
+  const spend = (db: ReturnType<typeof setup>["db"], iso: string) => monthSpend(db, new Date(iso)).spent;
+
+  it("counts 00:30 BST on 1 April (23:30Z on 31 March) in April, not March", () => {
+    const { db } = setup(5, null);
+    row(db, "2026-03-31T23:30:00.000Z", 0.5);
+    expect(spend(db, "2026-04-15T12:00:00Z")).toBeCloseTo(0.5);
+    expect(spend(db, "2026-03-20T12:00:00Z")).toBe(0);
+  });
+
+  it("counts 00:30 GMT on 1 January (00:30Z) in January", () => {
+    const { db } = setup(5, null);
+    row(db, "2027-01-01T00:30:00.000Z", 0.25);
+    expect(spend(db, "2027-01-10T12:00:00Z")).toBeCloseTo(0.25);
+    expect(spend(db, "2026-12-20T12:00:00Z")).toBe(0);
+  });
+
+  it("puts the previous month's last records in that month and does not double count across the boundary", () => {
+    const { db } = setup(5, null);
+    row(db, "2026-03-31T22:59:59.000Z", 1); // 23:59:59 BST on 31 March
+    row(db, "2026-03-31T23:00:00.000Z", 2); // 00:00 BST on 1 April
+    row(db, "2026-04-30T22:59:59.000Z", 4); // 23:59:59 BST on 30 April
+    row(db, "2026-04-30T23:00:00.000Z", 8); // 00:00 BST on 1 May
+    expect(spend(db, "2026-03-15T12:00:00Z")).toBeCloseTo(1);
+    expect(spend(db, "2026-04-15T12:00:00Z")).toBeCloseTo(6);
+    expect(spend(db, "2026-05-15T12:00:00Z")).toBeCloseTo(8);
+    const all = [1, 6, 8].reduce((a, b) => a + b, 0);
+    expect(all).toBe(15);
+  });
+
+  it("the budget gate and reserve use the same London month total", () => {
+    const { db, rt } = setup(1, null);
+    row(db, "2026-03-31T23:30:00.000Z", 1); // April's, spent the whole £1 cap
+    const april = new Date("2026-04-02T10:00:00Z");
+    expect(aiGate(db, rt.config, april)).toMatchObject({ ok: false, reason: "budget" });
+    expect(reserve(db, rt.config, april, { feature: "ask", model: req.model, estimateGbp: 0.001 })).toMatchObject({ ok: false, reason: "budget" });
+    // The same row belongs to April, so March's gate is untouched by it.
+    expect(aiGate(db, rt.config, new Date("2026-03-20T10:00:00Z"))).toEqual({ ok: true });
+  });
+});

@@ -1,7 +1,7 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { AI_BUDGET_TEXT, AI_OFF_TEXT, type AiStatus } from "@pulse/shared";
 import type { Config } from "../../config.js";
-import { londonDate } from "../../dates.js";
+import { addDays, londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { aiReservation, aiUsage } from "../../db/schema.js";
 import { costGbp, PRICES_CHECKED_ON, PRICES_USD_PER_MTOK, type TokenUsage } from "./pricing.js";
@@ -26,8 +26,9 @@ function inMonth(ts: string, b: { start: string; next: string }): boolean {
 
 export function monthSpend(db: Db, now: Date) {
   const b = monthBounds(now);
-  // Fetch a wide window cheaply, then filter on the London date.
-  const rows = db.select().from(aiUsage).where(and(gte(aiUsage.ts, `${b.start}T00:00:00`), lt(aiUsage.ts, `${b.next}T23:59:59`))).all().filter((r) => inMonth(r.ts, b));
+  // Fetch a wide window cheaply, then filter on the London date. In British Summer Time London midnight is 23:00Z on the
+  // day before, so the window starts a day early (D66). The London date filter below is what decides membership.
+  const rows = db.select().from(aiUsage).where(and(gte(aiUsage.ts, `${addDays(b.start, -1)}T00:00:00`), lt(aiUsage.ts, `${b.next}T23:59:59`))).all().filter((r) => inMonth(r.ts, b));
   const byFeature = new Map<string, { calls: number; costGbp: number }>();
   let spent = 0;
   for (const r of rows) {
