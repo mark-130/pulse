@@ -1,6 +1,11 @@
 import { z } from "zod";
+import { isPricedModel, PRICED_MODELS } from "./modules/ai/pricing.js";
 
 const hex = (bytes: number) => z.string().regex(new RegExp(`^[0-9a-f]{${bytes * 2}}$`), `must be ${bytes * 2} hex characters`);
+
+/** A model id must have a known price (D66): the monthly cap cannot be enforced for a model that cannot be costed. */
+const pricedModel = (fallback: string) =>
+  z.string().min(1).default(fallback).refine(isPricedModel, { message: `has no known price. Supported models: ${PRICED_MODELS.join(", ")}` });
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
@@ -20,8 +25,8 @@ const envSchema = z.object({
   /** Off by default. While off, Ask has no propose tools and no AI proposal is created. PULSE_GARMIN_WRITES is separate and also off by default. */
   AI_PROPOSALS: z.enum(["on", "off"]).default("off"),
   ANTHROPIC_API_KEY: z.string().default(""),
-  ANTHROPIC_MODEL_SMART: z.string().min(1).default("claude-sonnet-5-5"),
-  ANTHROPIC_MODEL_FAST: z.string().min(1).default("claude-haiku-5-5"),
+  ANTHROPIC_MODEL_SMART: pricedModel("claude-sonnet-5-5"),
+  ANTHROPIC_MODEL_FAST: pricedModel("claude-haiku-5-5"),
   AI_MONTHLY_CAP_GBP: z.coerce.number().positive().default(5),
   /** Price tables are in USD. This is the exchange rate used to show spend in GBP. Update it when it drifts. */
   AI_USD_TO_GBP: z.coerce.number().positive().default(0.78),

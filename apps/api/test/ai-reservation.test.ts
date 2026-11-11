@@ -173,3 +173,57 @@ describe("London month boundary (PULSE-002, D66)", () => {
     expect(aiGate(db, rt.config, new Date("2026-03-20T10:00:00Z"))).toEqual({ ok: true });
   });
 });
+
+describe("unknown model pricing fails closed (PULSE-004, D66)", () => {
+  const unknown: AiConfig = { ...config(5), ANTHROPIC_MODEL_SMART: "claude-opus-9-9" };
+
+  it("config rejects an unpriced model id at boot, with the supported list, and accepts the defaults", async () => {
+    const { loadConfig } = await import("../src/config.js");
+    const { hashPassword } = await import("../src/auth/password.js");
+    const base = { PULSE_PASSWORD_HASH: await hashPassword("pw"), PULSE_SESSION_SECRET: "s".repeat(40), PULSE_SECRET_KEY: "ab".repeat(32), GARMIN_MCP_URL: "http://garmin-mcp:8000/mcp" };
+    expect(() => loadConfig({ ...base, ANTHROPIC_MODEL_SMART: "claude-opus-9-9" })).toThrow(/ANTHROPIC_MODEL_SMART[\s\S]*no known price[\s\S]*claude-sonnet-5-5/);
+    expect(() => loadConfig({ ...base, ANTHROPIC_MODEL_FAST: "gpt-5" })).toThrow(/ANTHROPIC_MODEL_FAST/);
+    expect(() => loadConfig({ ...base, ANTHROPIC_MODEL_SMART: "toString" })).toThrow(/no known price/);
+    expect(loadConfig(base)).toMatchObject({ ANTHROPIC_MODEL_SMART: "claude-sonnet-5-5", ANTHROPIC_MODEL_FAST: "claude-haiku-5-5" });
+  });
+
+  it("there is no fallback rate: costing or estimating an unpriced model throws", () => {
+    expect(() => costGbp("claude-opus-9-9", usage(), 0.78)).toThrow(/No price is known/);
+    expect(() => estimateCostGbp("claude-opus-9-9", req, 0.78)).toThrow(/No price is known/);
+    expect(() => costGbp("toString", usage(), 0.78)).toThrow(/No price is known/);
+  });
+
+  it("the gate is closed for an unpriced configured model, with a plain reason", () => {
+    const { db } = setup(5, null);
+    expect(aiGate(db, unknown, NOW)).toMatchObject({ ok: false, reason: "off", message: expect.stringContaining("no known price") });
+  });
+
+  it("an unpriced model makes no API call, reserves nothing and records nothing", async () => {
+    let calls = 0;
+    const { db, rt } = setup(5, { async create() { calls++; return text("ok"); } });
+    await expect(callModel({ ...rt, config: config(5) }, "ask", { ...req, model: "claude-opus-9-9" })).rejects.toBeInstanceOf(AiUnavailable);
+    await expect(callModel({ ...rt, config: unknown }, "ask", req)).rejects.toBeInstanceOf(AiUnavailable);
+    expect(calls).toBe(0);
+    expect(held(db)).toHaveLength(0);
+    expect(db.select().from(aiUsage).all()).toHaveLength(0);
+  });
+
+  it("an unpriced model cannot bypass the cap: it is refused even with nothing spent and a huge cap", async () => {
+    let calls = 0;
+    const { db, rt } = setup(1_000_000, { async create() { calls++; return text("ok"); } });
+    await expect(callModel(rt, "ask", { ...req, model: "claude-opus-9-9" })).rejects.toThrow();
+    expect(calls).toBe(0);
+    expect(monthSpend(db, NOW).spent).toBe(0);
+  });
+
+  it("priced models still work and still count, Sonnet and Haiku", async () => {
+    const { db, rt } = setup(5, { async create() { return text("ok", usage({ inputTokens: 1000, outputTokens: 200 })); } });
+    await callModel(rt, "ask", req);
+    await callModel(rt, "briefing", { ...req, model: "claude-haiku-5-5" });
+    const rows = db.select().from(aiUsage).all();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.costGbp).toBeCloseTo(costGbp("claude-sonnet-5-5", usage(), 0.78));
+    expect(rows[1]?.costGbp).toBeCloseTo(costGbp("claude-haiku-5-5", usage(), 0.78));
+    expect(held(db)).toHaveLength(0);
+  });
+});

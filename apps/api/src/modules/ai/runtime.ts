@@ -2,6 +2,7 @@ import type { Db } from "../../db/index.js";
 import type { Logger } from "../../logger.js";
 import { sanitiseError } from "../../notify.js";
 import { AiFailure, type LlmClient, type LlmRequest, type LlmResponse } from "./llm.js";
+import { isPricedModel, UNPRICED_MODEL_TEXT } from "./pricing.js";
 import { aiGate, estimateCostGbp, release, reserve, settle, type AiConfig } from "./usage.js";
 
 export interface AiRuntime {
@@ -34,6 +35,8 @@ export async function callModel(rt: AiRuntime, feature: AiFeature, req: LlmReque
   const gate = aiGate(rt.db, rt.config, rt.now());
   if (!gate.ok) throw new AiUnavailable(gate.message, gate.reason);
   if (!rt.llm) throw new AiUnavailable("AI is off", "off");
+  // Fail closed: a model with no known price cannot be costed or capped, so it makes no call (D66).
+  if (!isPricedModel(req.model)) throw new AiUnavailable(UNPRICED_MODEL_TEXT, "off");
   const hold = reserve(rt.db, rt.config, rt.now(), { feature, model: req.model, estimateGbp: estimateCostGbp(req.model, req, rt.config.AI_USD_TO_GBP) });
   if (!hold.ok) throw new AiUnavailable(hold.message, hold.reason);
   let res: LlmResponse;

@@ -4,7 +4,7 @@ import type { Config } from "../../config.js";
 import { addDays, londonDate } from "../../dates.js";
 import type { Db } from "../../db/index.js";
 import { aiReservation, aiUsage } from "../../db/schema.js";
-import { costGbp, PRICES_CHECKED_ON, PRICES_USD_PER_MTOK, type TokenUsage } from "./pricing.js";
+import { costGbp, isPricedModel, PRICES_CHECKED_ON, PRICES_USD_PER_MTOK, priceOf, UNPRICED_MODEL_TEXT, type TokenUsage } from "./pricing.js";
 
 export type AiConfig = Pick<Config, "ANTHROPIC_API_KEY" | "ANTHROPIC_MODEL_SMART" | "ANTHROPIC_MODEL_FAST" | "AI_MONTHLY_CAP_GBP" | "AI_USD_TO_GBP" | "AI_PROPOSALS" | "PULSE_GARMIN_WRITES">;
 
@@ -81,9 +81,9 @@ export function clearStaleReservations(db: Db, now: Date): void {
 export function estimateCostGbp(model: string, req: { system: string; messages: unknown; tools?: unknown; maxTokens: number }, usdToGbp: number): number {
   const chars = req.system.length + JSON.stringify(req.messages).length + (req.tools ? JSON.stringify(req.tools).length : 0);
   const inputTokens = Math.ceil(chars / 3);
-  const p = PRICES_USD_PER_MTOK[model] ?? PRICES_USD_PER_MTOK["claude-sonnet-5-5"];
-  const rate = Math.max(p?.input ?? 0, p?.cacheWrite ?? 0);
-  return ((inputTokens * rate + req.maxTokens * (p?.output ?? 0)) / 1_000_000) * usdToGbp;
+  const p = priceOf(model);
+  const rate = Math.max(p.input, p.cacheWrite);
+  return ((inputTokens * rate + req.maxTokens * p.output) / 1_000_000) * usdToGbp;
 }
 
 export type Reservation = { ok: true; id: number } | { ok: false; reason: "off" | "budget"; message: string };
@@ -128,6 +128,8 @@ export type AiGate = { ok: true } | { ok: false; reason: "off" | "budget"; messa
 /** The single place that decides whether an AI call may be made. Checked before every call, including each step of a tool loop. */
 export function aiGate(db: Db, config: AiConfig, now: Date): AiGate {
   if (!aiConfigured(config)) return { ok: false, reason: "off", message: AI_OFF_TEXT };
+  // Fail closed (D66): a configured model with no known price cannot be capped, so AI stays off. Config also rejects this at boot.
+  if (!isPricedModel(config.ANTHROPIC_MODEL_SMART) || !isPricedModel(config.ANTHROPIC_MODEL_FAST)) return { ok: false, reason: "off", message: UNPRICED_MODEL_TEXT };
   if (monthSpend(db, now).spent + reservedGbp(db, now) >= config.AI_MONTHLY_CAP_GBP) return { ok: false, reason: "budget", message: AI_BUDGET_TEXT };
   return { ok: true };
 }
