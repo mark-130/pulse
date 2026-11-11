@@ -62,7 +62,7 @@ One container. Hono API plus the built React app. SQLite in /data. Scheduled job
 - Web: Trends has two tabs, Readings and Fitness (?tab=fitness).
 
 ## Auth
-Single user. Password checked against a scrypt hash (salt:hash in hex) in PULSE_PASSWORD_HASH. Signed httpOnly SameSite=Lax session cookie (30 days). CSRF token header on every non-GET. Login rate limit: 5 attempts per 15 minutes per socket address, held in memory with expired keys swept every 100 attempts and a cap of 10,000 keys (least recently used evicted, a new key is never refused, D54). Tailscale identity headers are not trusted, because LAN clients can spoof them. Sessions can be revoked on the server (D56): the token carries a session epoch, kept in the settings table (key session_epoch), and is only valid while that is the current epoch. Sign out bumps the epoch, so every device is signed out and a copied cookie stops working. The cookie value is still signed and the CSRF token is unchanged. Sign out needs a session and the CSRF header like any other write.
+Single user. Password checked against a scrypt hash (salt:hash in hex) in PULSE_PASSWORD_HASH. Signed httpOnly SameSite=Lax session cookie (30 days). CSRF token header on every non-GET. Login rate limit: 5 attempts per 15 minutes per socket address, held in memory with expired keys swept every 100 attempts and a cap of 10,000 keys (least recently used evicted, a new key is never refused, D54). Tailscale identity headers are not trusted, because other clients can spoof them. Sessions can be revoked on the server (D56): the token carries a session epoch, kept in the settings table (key session_epoch), and is only valid while that is the current epoch. Sign out bumps the epoch, so every device is signed out and a copied cookie stops working. The cookie value is still signed and the CSRF token is unchanged. Sign out needs a session and the CSRF header like any other write.
 
 ## Proposal engine (the only write path)
 Built in Phase 3 (apps/api/src/modules/proposals). Phase 3 covers Garmin only, and only moving a scheduled workout to another date or removing it from the schedule.
@@ -102,6 +102,8 @@ Built in Phase 3 (apps/api/src/modules/proposals). Phase 3 covers Garmin only, a
 - ntfy alert after 3 consecutive failures, at most once per day per job.
 
 ## Security and ops
+- Network (D69): the container publishes 127.0.0.1:8210:8200 only. The one route in is tailscale serve, https://home-lab.tail83f400.ts.net:8443 forwarding to http://127.0.0.1:8210, and PULSE_BASE_URL is that https URL, so the session cookie is Secure. There is no LAN HTTP route.
+- Recovery if Tailscale is down on the server: SSH to the server (LAN SSH is unaffected), check the app with curl -s http://127.0.0.1:8210/api/health (the port is on loopback, so this works there), then restart Tailscale with sudo systemctl restart tailscaled and check it with tailscale status. Re-apply the serve rule if it was lost: tailscale serve --bg --https=8443 http://127.0.0.1:8210. Use 127.0.0.1 and not localhost, because the port is published on IPv4 loopback only.
 - pino logging with token redaction. Secrets only in env or the encrypted secret table.
 - Nightly SQLite backup (VACUUM INTO /data/backups, keep 7). Check that existing Restic jobs cover /mnt/data/AppData/pulse.
 - Dockerfile: multi-stage on node:22-alpine, non-root, healthcheck on /api/health.

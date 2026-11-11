@@ -12,14 +12,17 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
+    # HTTPS only (D69). Published on the host loopback so the only way in is tailscale serve (https://home-lab.tail83f400.ts.net:8443
+    # forwarding to http://127.0.0.1:8210). No LAN or other interface can reach the plain HTTP port.
     ports:
-      - "8210:8200"
+      - "127.0.0.1:8210:8200"
     environment:
       TZ: Europe/London
       NODE_ENV: production
       PORT: "8200"
       DATA_DIR: /data
-      PULSE_BASE_URL: "${PULSE_BASE_URL}"
+      # https makes the session cookie Secure (D19, D69). Fixed here, so a stale http value in the stack variables cannot weaken it.
+      PULSE_BASE_URL: "https://home-lab.tail83f400.ts.net:8443"
       PULSE_PASSWORD_HASH: "${PULSE_PASSWORD_HASH}"
       PULSE_SESSION_SECRET: "${PULSE_SESSION_SECRET}"
       PULSE_SECRET_KEY: "${PULSE_SECRET_KEY}"

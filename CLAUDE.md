@@ -1,5 +1,5 @@
 # NGtive Split (code name pulse)
-Personal training and home dashboard for Mark. Self-hosted on a Dell Optiplex 7010 SFF (Ubuntu Server 24.04, 192.168.0.10) in Docker, reached on the LAN and over Tailscale. v1: Garmin (workouts and races) plus AI. Google Calendar is Phase 5, scope to be agreed. Home Assistant and other apps arrive later as modules.
+Personal training and home dashboard for Mark. Self-hosted on a Dell Optiplex 7010 SFF (Ubuntu Server 24.04, 192.168.0.10) in Docker, reached only over HTTPS on the tailnet at https://home-lab.tail83f400.ts.net:8443 (tailscale serve, D69). v1: Garmin (workouts and races) plus AI. Google Calendar is Phase 5, scope to be agreed. Home Assistant and other apps arrive later as modules.
 
 ## Golden rules
 1. Nothing writes to Garmin, Google Calendar or Home Assistant without an explicit confirm tap by Mark. AI can only create proposals. See docs/ARCHITECTURE.md (Proposal engine).
@@ -31,7 +31,7 @@ pnpm workspace. apps/web: React 19, Vite, TypeScript strict, Tailwind v4, shadcn
 
 ## Homelab conventions
 - Compose lives in deploy/docker-compose.yml and is pasted into Portainer's web editor. Portainer cannot read host env_file paths, so use ${VAR} and paste variables into Advanced mode.
-- External network `homelab`. Data at /mnt/data/AppData/pulse. Host port 8210 (the container listens on 8200 internally; Duplicati holds 8200 on the host).
+- External network `homelab`. Data at /mnt/data/AppData/pulse. Host port 127.0.0.1:8210 (loopback only, reached through tailscale serve; the container listens on 8200 internally; Duplicati holds 8200 on the host).
 - Watchtower opt-in label on the service.
 - ntfy: POST JSON to the root URL (http://192.168.0.10:8090), topic homelab-alerts, Bearer token.
 - Shell scripts: under set -euo pipefail use ok=$((ok+1)), never ((ok++)). Run git as user mark.

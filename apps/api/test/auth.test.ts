@@ -127,18 +127,29 @@ describe("cookie Secure flag", () => {
     return res.headers.get("set-cookie") ?? "";
   };
 
-  it("is not Secure when PULSE_BASE_URL is http, so it works on the LAN", async () => {
-    const cookie = await login("http://192.168.0.10:8210");
+  it("is not Secure when PULSE_BASE_URL is http, which is only for local development (D69)", async () => {
+    const cookie = await login("http://localhost:8200");
     expect(cookie).toMatch(/pulse_session=/);
     expect(cookie).not.toMatch(/Secure/i);
   });
 
   it("ignores a client supplied x-forwarded-proto", async () => {
-    expect(await login("http://192.168.0.10:8210", { "x-forwarded-proto": "https" })).not.toMatch(/Secure/i);
+    expect(await login("http://localhost:8200", { "x-forwarded-proto": "https" })).not.toMatch(/Secure/i);
   });
 
   it("is Secure when PULSE_BASE_URL is https", async () => {
     expect(await login("https://home-lab.tailnet.ts.net:8443")).toMatch(/Secure/i);
+  });
+
+  it("is Secure, HttpOnly and SameSite=Lax with the base URL the deploy compose file sets (D69)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const compose = readFileSync(join(__dirname, "../../../deploy/docker-compose.yml"), "utf8");
+    const url = /PULSE_BASE_URL: "(https:[^"]+)"/.exec(compose)?.[1];
+    expect(url).toBe("https://home-lab.tail83f400.ts.net:8443");
+    const cookie = await login(url ?? "");
+    expect(cookie).toMatch(/Secure/i);
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/SameSite=Lax/i);
   });
 });
 
@@ -146,7 +157,7 @@ describe("cookie Secure flag", () => {
 describe("server side session revocation (D56)", () => {
   async function setup(dataDir?: string) {
     const dir = dataDir ?? mkdtempSync(join(tmpdir(), "pulse-epoch-"));
-    const config = loadConfig({ NODE_ENV: "test", PULSE_BASE_URL: "http://192.168.0.10:8210", PULSE_PASSWORD_HASH: await hashPassword("pw"), PULSE_SESSION_SECRET: "s".repeat(40), PULSE_SECRET_KEY: "ab".repeat(32), GARMIN_MCP_URL: "http://garmin-mcp:8000/mcp" });
+    const config = loadConfig({ NODE_ENV: "test", PULSE_BASE_URL: "https://home-lab.tail83f400.ts.net:8443", PULSE_PASSWORD_HASH: await hashPassword("pw"), PULSE_SESSION_SECRET: "s".repeat(40), PULSE_SECRET_KEY: "ab".repeat(32), GARMIN_MCP_URL: "http://garmin-mcp:8000/mcp" });
     const handle = openDb(dir);
     const app = createApp({ config, log: createLogger("silent"), sessionEpoch: dbSessionEpoch(handle.db) });
     return { dir, handle, app, config };

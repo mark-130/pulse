@@ -5,7 +5,7 @@ import { createWeatherModule } from "../src/modules/weather/module.js";
 import { loadConfig } from "../src/config.js";
 import { createLogger } from "../src/logger.js";
 
-export async function makeApp(password = "correct horse", baseUrl = "http://192.168.0.10:8210") {
+export async function makeApp(password = "correct horse", baseUrl = "https://home-lab.tail83f400.ts.net:8443") {
   const config = loadConfig({
     NODE_ENV: "test",
     PULSE_BASE_URL: baseUrl,
