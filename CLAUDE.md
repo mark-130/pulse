@@ -36,5 +36,12 @@ pnpm workspace. apps/web: React 19, Vite, TypeScript strict, Tailwind v4, shadcn
 - ntfy: POST JSON to the root URL (http://192.168.0.10:8090), topic homelab-alerts, Bearer token.
 - Shell scripts: under set -euo pipefail use ok=$((ok+1)), never ((ok++)). Run git as user mark.
 
+## Git
+- Work from main and push straight to main. No pull requests and no claude/ branches. Do not touch other branches.
+- Dependabot pull requests are the exception. Mark merges those himself.
+- A push to main deploys through Watchtower. After every push, check that CI passed and that the image job built and pushed the image, before reporting.
+- Commit messages are short and in the imperative.
+- Confirm before write: anything that changes an external system (Garmin, Google Calendar, Home Assistant, files, accounts) is proposed to Mark first and applied only after he confirms.
+
 ## Working with Mark
 Practical, concise, assumptions stated in one line. Light dry humour is fine in chat and the daily briefing, never in confirm dialogs or errors.
