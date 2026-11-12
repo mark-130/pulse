@@ -72,20 +72,34 @@ export function saveState(db: Db, patch: Partial<ImportState>, days: number): Im
 }
 
 /**
- * The covered range of the import. Fixed once stored. A state from before D70 has none: if windows were already done, the range
- * ends on the newest day a window reached (that is the day the import ran) and is stored now, so it stops sliding. Before the
- * first Start there is nothing to fix, so the range is the last `days` days ending today and is not stored.
+ * The covered range of the import. Fixed once stored. A state from before D70 has none, because the old code recomputed the range
+ * from today on every run. It is rebuilt from what was recorded, never from the newest finished window alone, because the newest
+ * windows may have failed or not been tried (D71):
+ * - Complete: every kind had finished a window ending on the last day of the range, so that is the newest finished window.
+ * - Anything else: the day of the first Start (startedAt, as a London date, never reset), or a later window if one was recorded,
+ *   done or failed. A resume on a later day may have gone further than that, so this is the earliest the end can be.
+ * - No startedAt (nothing reliable to go on): today, which is what the old code would have used on the next run. The range is
+ *   then never shorter than the original, so the card cannot call a partly imported range complete.
+ * Before the first Start there is nothing to fix: the range is the last `days` days ending today. Only `persist` stores the result,
+ * and only Start and the run pass it, so looking at the card never writes (D71).
  */
-export function importRange(db: Db, now: Date, days: number): { from: string; to: string; days: number } {
+export function importRange(db: Db, now: Date, days: number, persist = false): { from: string; to: string; days: number } {
   const st = loadState(db, days);
   if (st.rangeFrom && st.rangeTo) return { from: st.rangeFrom, to: st.rangeTo, days: daysBetween(st.rangeFrom, st.rangeTo) + 1 };
   const total = st.days > 0 ? st.days : days;
   const today = londonDate(now);
-  const last = db.select({ m: max(backfillProgress.windowEnd) }).from(backfillProgress).where(eq(backfillProgress.status, "done")).get()?.m ?? null;
-  if (last === null) return { from: addDays(today, -(total - 1)), to: today, days: total };
-  const to = last < today ? last : today;
+  const newest = (status: "done" | "failed") => db.select({ m: max(backfillProgress.windowEnd) }).from(backfillProgress).where(eq(backfillProgress.status, status)).get()?.m ?? null;
+  const lastDone = newest("done");
+  const lastFailed = newest("failed");
+  const started = st.startedAt && !Number.isNaN(Date.parse(st.startedAt)) ? londonDate(new Date(st.startedAt)) : null;
+  let to: string;
+  if (st.state === "idle" && started === null && lastDone === null && lastFailed === null) return { from: addDays(today, -(total - 1)), to: today, days: total };
+  if (st.state === "complete" && lastDone !== null) to = lastDone;
+  else if (started !== null) to = [started, lastDone, lastFailed].reduce<string>((a, d) => (d !== null && d > a ? d : a), started);
+  else to = today;
+  if (to > today) to = today;
   const from = addDays(to, -(total - 1));
-  saveState(db, { rangeFrom: from, rangeTo: to }, days);
+  if (persist && st.state !== "idle") saveState(db, { rangeFrom: from, rangeTo: to }, days);
   return { from, to, days: total };
 }
 
@@ -277,7 +291,7 @@ export function runOrder(db: Db, from: string, to: string): HistoryKindId[] {
 /** Runs the import until every kind has been tried, or it is paused, rate limited for an hour, or stopped by a failed login or an unreachable Garmin. */
 export async function runImport(deps: EngineDeps): Promise<ImportState["state"]> {
   // The range was fixed when the import was created (D70). It does not move with the clock.
-  const { from, to: today, days: total } = importRange(deps.db, deps.now(), deps.days);
+  const { from, to: today, days: total } = importRange(deps.db, deps.now(), deps.days, true);
   const rateBase = deps.rateBaseMs ?? RATE_BASE_MS;
   const ratePause = deps.ratePauseMs ?? RATE_PAUSE_MS;
   let lastTick = deps.now().getTime();

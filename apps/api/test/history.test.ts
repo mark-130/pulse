@@ -934,6 +934,11 @@ describe("history import: the range is fixed when the import is created (D70)", 
     s.advance(2);
     const later = await s.status();
     expect(key(later)).toEqual(key(first));
+    // Looking at the card does not write (D71). Start stores the range, and finishes without a call.
+    expect(loadState(s.t.handle.db, 60)).toMatchObject({ rangeFrom: null, rangeTo: null });
+    const calls = s.g.calls.length;
+    expect(key(await s.run())).toEqual(key(first));
+    expect(s.g.calls.length).toBe(calls);
     expect(loadState(s.t.handle.db, 60)).toMatchObject({ rangeFrom: first.from, rangeTo: first.to });
   });
 
@@ -945,5 +950,173 @@ describe("history import: the range is fixed when the import is created (D70)", 
     const done = await s.run();
     s.advance(3);
     expect((await s.status()).to).toBe(done.to);
+  });
+});
+
+describe("history import: a legacy import keeps the range it was meant to cover (D71)", () => {
+  const DAY = 86_400_000;
+  const D = (n: number) => addDays(TODAY, n);
+  const fresh = async () => {
+    let now = NOW;
+    const s = await setup({ days: 60, clock: () => now });
+    return { ...s, advance: (d: number) => void (now = new Date(now.getTime() + d * DAY)), advanceMs: (ms: number) => void (now = new Date(now.getTime() + ms)) };
+  };
+  type S = Awaited<ReturnType<typeof fresh>>;
+  /** An import saved by the code before D70: no stored range, state and startedAt as the old Start left them. */
+  const legacy = (s: S, state: "running" | "paused" | "stopped" | "complete_with_issues" | "complete", startedAt: string | null, extra: Record<string, unknown> = {}) =>
+    saveState(s.t.handle.db, { state, startedAt, rangeFrom: null, rangeTo: null, days: 60, ...extra }, 60);
+  const rows = (s: S, from: string, to: string, status: "done" | "failed") => {
+    for (const k of HISTORY_KINDS) s.t.handle.db.insert(backfillProgress).values({ kind: k.id, windowStart: from, windowEnd: to, status, rows: status === "done" ? 1 : 0, reason: status === "failed" ? "Garmin did not answer in time." : null, updatedAt: "x" }).run();
+  };
+  const stored = (s: S) => loadState(s.t.handle.db, 60);
+  const lastCalls = (s: S, from: number) => s.g.calls.slice(from).map((c) => String(c.args.start_date ?? c.args.date ?? "")).filter((d) => d !== "");
+
+  it("older windows done and the newest windows failed: the end stays on the day it started, the failed days stay inside it and visible", async () => {
+    const s = await fresh();
+    s.advanceMs(0);
+    rows(s, D(-59), D(-3), "done");
+    rows(s, D(-2), D(0), "failed");
+    legacy(s, "complete_with_issues", `${D(0)}T08:00:00Z`);
+    const st = await s.status();
+    expect(st.to).toBe(D(0));
+    expect(st.from).toBe(D(-59));
+    expect(st.state).toBe("complete_with_issues");
+    expect(st.kinds.every((k) => k.state === "attention" && k.done === 57 && k.total === 60 && k.failed === 1)).toBe(true);
+    expect(st.failedWindows.length).toBe(HISTORY_KINDS.length);
+    expect(st.failedWindows.every((f) => f.from === D(-2) && f.to === D(0))).toBe(true);
+    const before = s.g.calls.length;
+    const done = await s.run();
+    expect(done.state).toBe("complete");
+    expect(done.to).toBe(D(0));
+    expect(lastCalls(s, before).every((d) => d >= D(-2))).toBe(true);
+  });
+
+  it("stopped before any newest window succeeded: the unattempted days are inside the range, the card is not complete, and only they are fetched", async () => {
+    const s = await fresh();
+    rows(s, D(-62), D(-6), "done");
+    legacy(s, "stopped", `${D(-3)}T09:00:00Z`, { reason: "Garmin could not be reached." });
+    const st = await s.status();
+    expect(st.to).toBe(D(-3));
+    expect(st.from).toBe(D(-62));
+    expect(st.state).toBe("stopped");
+    expect(st.kinds.every((k) => k.state !== "done" && k.done === 57 && k.total === 60)).toBe(true);
+    const before = s.g.calls.length;
+    const done = await s.run();
+    expect(done.state).toBe("complete");
+    expect(done.to).toBe(D(-3));
+    expect(done.kinds.every((k) => k.done === 60)).toBe(true);
+    const asked = lastCalls(s, before);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((d) => d > D(-6) && d <= D(-3))).toBe(true);
+  });
+
+  it("paused by a rate limit: the range is the original, the pause resumes by itself, and only the missing days are fetched", async () => {
+    const s = await fresh();
+    rows(s, D(-62), D(-4), "done");
+    legacy(s, "paused", `${D(-3)}T09:00:00Z`, { pausedUntil: new Date(NOW.getTime() + 3_600_000).toISOString(), reason: "Garmin asked us to slow down three times in a row. The import resumes by itself after an hour." });
+    const st = await s.status();
+    expect(st.state).toBe("paused");
+    expect(st.to).toBe(D(-3));
+    expect(st.kinds.every((k) => k.state !== "done" && k.done === 59)).toBe(true);
+    await s.t.history.tick();
+    await s.t.history.idle();
+    expect(s.g.calls.length).toBe(0);
+    s.advanceMs(3_700_000);
+    await s.t.history.tick();
+    await s.t.history.idle();
+    const after = await s.status();
+    expect(after.state).toBe("complete");
+    expect(after.to).toBe(D(-3));
+    expect(lastCalls(s, 0).every((d) => d > D(-4) && d <= D(-3))).toBe(true);
+  });
+
+  it("startedAt is read as a London date: a start just after midnight in summer time is the new day", async () => {
+    const s = await fresh();
+    rows(s, "2026-04-01", "2026-06-20", "done");
+    legacy(s, "stopped", "2026-07-01T23:30:00Z");
+    const st = await s.status();
+    // 00:30 on 02/07/2026 in London, so the end is 02/07, not 01/07.
+    expect(st.to).toBe("2026-07-02");
+  });
+
+  it("a newer recorded window moves the end later than startedAt, never earlier", async () => {
+    const s = await fresh();
+    rows(s, D(-62), D(-1), "done");
+    rows(s, D(0), D(0), "failed");
+    legacy(s, "stopped", `${D(-5)}T09:00:00Z`);
+    expect((await s.status()).to).toBe(D(0));
+    const t = await fresh();
+    rows(t, D(-62), D(-1), "done");
+    legacy(t, "stopped", `${D(-5)}T09:00:00Z`);
+    expect((await t.status()).to).toBe(D(-1));
+  });
+
+  it("no startedAt: the end is today, never the newest finished window, so a partial import cannot look complete", async () => {
+    const s = await fresh();
+    rows(s, D(-62), D(-4), "done");
+    legacy(s, "stopped", null);
+    const st = await s.status();
+    expect(st.to).toBe(D(0));
+    expect(st.state).toBe("stopped");
+    expect(st.kinds.every((k) => k.state !== "done" && k.done === 56 && k.total === 60)).toBe(true);
+    // Not stored by looking: it follows today until Start, which fixes it.
+    s.advance(1);
+    expect((await s.status()).to).toBe(D(1));
+    expect(stored(s)).toMatchObject({ rangeFrom: null, rangeTo: null });
+    const done = await s.run();
+    expect(done.state).toBe("complete");
+    expect(done.to).toBe(D(1));
+    s.advance(3);
+    expect((await s.status()).to).toBe(D(1));
+  });
+
+  it("a partly done import resumed on a later day keeps the original end and does not refetch finished days", async () => {
+    const s = await fresh();
+    rows(s, D(-65), D(-8), "done");
+    legacy(s, "stopped", `${D(-6)}T09:00:00Z`);
+    s.advance(3);
+    const before = s.g.calls.length;
+    const done = await s.run();
+    expect(done.state).toBe("complete");
+    expect(done.to).toBe(D(-6));
+    expect(stored(s)).toMatchObject({ rangeTo: D(-6) });
+    const asked = lastCalls(s, before);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((d) => d > D(-8) && d <= D(-6))).toBe(true);
+    const calls = s.g.calls.length;
+    s.advance(2);
+    expect((await s.run()).to).toBe(D(-6));
+    expect(s.g.calls.length).toBe(calls);
+  });
+
+  it("a completed legacy import keeps its original range, whatever startedAt says, and fetches nothing", async () => {
+    for (const startedAt of [`${D(-3)}T09:00:00Z`, null]) {
+      const s = await fresh();
+      rows(s, D(-61), D(-1), "done");
+      legacy(s, "complete", startedAt);
+      s.advance(5);
+      const st = await s.status();
+      expect(st.state).toBe("complete");
+      expect(st.to).toBe(D(-1));
+      expect(st.from).toBe(D(-60));
+      expect(st.kinds.every((k) => k.state === "done" && k.done === 60 && k.total === 60)).toBe(true);
+      await s.t.history.tick();
+      await s.t.history.idle();
+      expect(s.g.calls.length).toBe(0);
+      expect(stored(s)).toMatchObject({ rangeFrom: null });
+      expect((await s.run()).to).toBe(D(-1));
+      expect(s.g.calls.length).toBe(0);
+      expect(stored(s)).toMatchObject({ rangeFrom: D(-60), rangeTo: D(-1) });
+    }
+  });
+
+  it("the card never reports complete while a required day is missing, and viewing it never writes a range", async () => {
+    const s = await fresh();
+    rows(s, D(-62), D(-1), "done");
+    legacy(s, "complete_with_issues", `${D(0)}T08:00:00Z`);
+    const st = await s.status();
+    expect(st.to).toBe(D(0));
+    expect(st.kinds.every((k) => k.state !== "done" && k.done === 59)).toBe(true);
+    expect(stored(s)).toMatchObject({ rangeFrom: null, rangeTo: null });
   });
 });

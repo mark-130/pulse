@@ -60,7 +60,7 @@ export function createHistoryModule(deps: HistoryDeps): { module: Module<Hono>; 
 
   const start = () => {
     // A state from before D70 gets its range stored first, so it is kept below.
-    importRange(deps.db, clock(), deps.days);
+    importRange(deps.db, clock(), deps.days, true);
     const st = loadState(deps.db, deps.days);
     if (st.state === "running" && loop) return;
     // A fresh Start (after a stop or a finished run) clears what needed attention, so only the failed windows and the windows
