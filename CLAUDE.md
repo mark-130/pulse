@@ -1,5 +1,5 @@
 # NGtive Split (code name pulse)
-Personal training and home dashboard for Mark. Self-hosted on a Dell Optiplex 7010 SFF (Ubuntu Server 24.04, 192.168.0.10) in Docker, reached only over HTTPS on the tailnet at https://home-lab.tail83f400.ts.net:8443 (tailscale serve, D69). v1: Garmin (workouts and races) plus AI. Google Calendar is Phase 5, scope to be agreed. Home Assistant and other apps arrive later as modules.
+Personal training and home dashboard for Mark. Self-hosted on a Dell Optiplex 7010 SFF (Ubuntu Server 24.04, 192.168.0.10) in Docker, reached only over HTTPS on the tailnet at https://<host>.<tailnet>.ts.net:8443 (tailscale serve, D69). v1: Garmin (workouts and races) plus AI. Google Calendar is Phase 5, scope to be agreed. Home Assistant and other apps arrive later as modules.
 
 ## Golden rules
 1. Nothing writes to Garmin, Google Calendar or Home Assistant without an explicit confirm tap by Mark. AI can only create proposals. See docs/ARCHITECTURE.md (Proposal engine).
