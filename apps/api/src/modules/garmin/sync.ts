@@ -380,6 +380,10 @@ function activityDays(db: Db, now: Date): number {
 export const READINGS_BACKFILL_DAYS = 28;
 /** Per-day kinds run at most two calls at a time. */
 export const READINGS_CONCURRENCY = 2;
+/** Windows a run may finish. A long gap is worked through over several runs, not in one burst (D74). */
+export const READINGS_WINDOWS_PER_RUN = 2;
+/** A day this recent (today, yesterday, the day before) that Garmin has no data for is asked for again on later runs (D74). */
+export const READINGS_RECENT_DAYS = 3;
 const READINGS_KEY = "garmin_readings_backfill";
 
 const READING_TASKS = [
@@ -393,19 +397,45 @@ interface ReadingsState {
   windows: BackfillWindow[];
   /** Days Garmin returned nothing for, per kind, so they are not asked again every run. */
   empty: Record<string, string[]>;
+  /** The newest day windows have been made for (D74). Absent on a state from before D74: see loadReadingsState. */
+  through?: string;
 }
 
+/**
+ * The readings windows. The first run makes the last 28 days. Every later run makes windows for the days since the newest one
+ * made, up to yesterday (today is the routine pass's own), so a day missed in an outage is picked up by the next run that
+ * works. Windows are newest first, at most READINGS_WINDOWS_PER_RUN finish per run, and days already stored or known empty are
+ * skipped when a window runs, so a long gap costs calls only for the days that are actually missing.
+ */
 function loadReadingsState(db: Db, today: string): ReadingsState {
   const row = db.select().from(settings).where(eq(settings.key, READINGS_KEY)).get();
-  if (row) return row.value as ReadingsState;
-  const windows: BackfillWindow[] = [];
-  for (let i = 0; i * BACKFILL_WINDOW_DAYS < READINGS_BACKFILL_DAYS; i++) {
-    const to = addDays(today, -i * BACKFILL_WINDOW_DAYS);
-    windows.push({ from: addDays(to, -(BACKFILL_WINDOW_DAYS - 1)), to, done: false });
+  if (!row) {
+    const windows = makeWindows(addDays(today, -(READINGS_BACKFILL_DAYS - 1)), today);
+    const state: ReadingsState = { windows, empty: {}, through: today };
+    saveReadingsState(db, state);
+    return state;
   }
-  const state: ReadingsState = { windows, empty: {} };
+  const state = row.value as ReadingsState;
+  const yesterday = addDays(today, -1);
+  const through = state.through ?? (state.windows.length > 0 ? state.windows.reduce((m, w) => (w.to > m ? w.to : m), "") : yesterday);
+  if (through >= yesterday) {
+    if (state.through === undefined) {
+      state.through = through;
+      saveReadingsState(db, state);
+    }
+    return state;
+  }
+  state.windows = [...makeWindows(addDays(through, 1), yesterday), ...state.windows.filter((w) => !w.done)];
+  state.through = yesterday;
   saveReadingsState(db, state);
   return state;
+}
+
+/** 14 day windows covering from..to, newest first. */
+function makeWindows(from: string, to: string): BackfillWindow[] {
+  const windows: BackfillWindow[] = [];
+  for (let end = to; end >= from; end = addDays(end, -BACKFILL_WINDOW_DAYS)) windows.push({ from: addDays(end, -(BACKFILL_WINDOW_DAYS - 1)) < from ? from : addDays(end, -(BACKFILL_WINDOW_DAYS - 1)), to: end, done: false });
+  return windows;
 }
 
 function saveReadingsState(db: Db, state: ReadingsState): void {
@@ -437,14 +467,23 @@ async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>
  */
 async function runReadingsBackfill(session: GarminSession, state: ReadingsState, ctx: Ctx, retry: RetryState): Promise<NonNullable<SyncResult["readingsBackfill"]>> {
   let doneThisRun = 0;
+  let ran = 0;
   let failedWindow: string | null = null;
   const kinds = [...READING_TASKS.map((t) => t.kind), "body_battery"];
+  const recentFrom = addDays(ctx.today, -(READINGS_RECENT_DAYS - 1));
   for (const w of state.windows) {
     if (w.done) continue;
-    if (doneThisRun > 0) await retry.sleep(BACKFILL_PAUSE_MS);
+    if (doneThisRun >= READINGS_WINDOWS_PER_RUN) break;
+    if (ran++ > 0) await retry.sleep(BACKFILL_PAUSE_MS);
     const have = new Set(ctx.db.select({ kind: garminSnapshot.kind, date: garminSnapshot.date }).from(garminSnapshot).where(and(inArray(garminSnapshot.kind, kinds), gte(garminSnapshot.date, w.from), lte(garminSnapshot.date, w.to))).all().map((r) => `${r.kind}|${r.date}`));
     const isEmpty = (kind: string, d: string) => state.empty[kind]?.includes(d) ?? false;
-    const markEmpty = (kind: string, d: string) => void (state.empty[kind] = [...(state.empty[kind] ?? []), d]);
+    // A "no data" answer for the last few days is not final: the watch may not have synced yet (D74). Those days are not recorded as
+    // empty and the window stays open, so the next run asks again. Older days are recorded as empty, as before.
+    let held = false;
+    const markEmpty = (kind: string, d: string) => {
+      if (d >= recentFrom) held = true;
+      else state.empty[kind] = [...(state.empty[kind] ?? []), d];
+    };
     let failed = false;
 
     const jobs = READING_TASKS.flatMap((t) => daysIn(w.from, w.to).filter((d) => !have.has(`${t.kind}|${d}`) && !isEmpty(t.kind, d)).map((d) => ({ t, d })));
@@ -465,7 +504,7 @@ async function runReadingsBackfill(session: GarminSession, state: ReadingsState,
 
     // Body battery is one ranged call for the window. Its days are stored one snapshot each, in the same one entry array shape.
     const missingBb = daysIn(w.from, w.to).filter((d) => !have.has(`body_battery|${d}`) && !isEmpty("body_battery", d));
-    if (missingBb.length > 0 && !failed) {
+    if (missingBb.length > 0) {
       try {
         const res = await callWithRetry(session, "get_body_battery", { start_date: w.from, end_date: w.to }, retry);
         if (res.kind === "message") {
@@ -491,6 +530,10 @@ async function runReadingsBackfill(session: GarminSession, state: ReadingsState,
       failedWindow = `${w.from} to ${w.to}`;
       saveReadingsState(ctx.db, state);
       break;
+    }
+    if (held) {
+      saveReadingsState(ctx.db, state);
+      continue;
     }
     w.done = true;
     doneThisRun++;

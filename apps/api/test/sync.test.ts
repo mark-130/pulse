@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import { addDays } from "../src/dates.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDb } from "../src/db/index.js";
 import { activity, garminSnapshot, race, settings, syncState, workout } from "../src/db/schema.js";
@@ -381,5 +382,249 @@ describe("28 day readings backfill (D45)", () => {
     expect(countKind("sleep")).toBe(28);
     // Only the missing days are asked for again.
     expect(again.fake.calls.filter((c) => c.tool === "get_sleep_summary" && c.args.date !== TODAY).length).toBeLessThan(28 - stored + 2);
+  });
+});
+
+describe("readings catch-up after an outage (D74, PULSE-009)", () => {
+  const KINDS = ["training_readiness", "sleep", "hrv", "rhr", "body_battery"];
+  const PER_DAY = ["get_training_readiness", "get_sleep_summary", "get_hrv_data", "get_rhr_day"];
+  const day = (n: number) => addDays(TODAY, n);
+  const at = (n: number) => () => new Date(`${day(n)}T12:30:00Z`);
+  const stored = (kind: string) => new Set(handle.db.select().from(garminSnapshot).all().filter((r) => r.kind === kind).map((r) => r.date));
+  const bbRange = (start: string, end: string) => {
+    const out: { date: string; charged: number; drained: number }[] = [];
+    for (let d = start; d <= end; d = addDays(d, 1)) out.push({ date: d, charged: 50, drained: 40 });
+    return out;
+  };
+  /** A scripted Garmin that answers any date, records every call and how many were in flight together. `answer` may override a call. */
+  function watched(answer?: (tool: string, args: Record<string, unknown>) => GarminResult | null) {
+    const fake = fakeGarmin();
+    let inflight = 0;
+    let max = 0;
+    const connect: GarminConnector = async () => {
+      const sess = await fake.connect();
+      return {
+        async call(tool, args) {
+          inflight++;
+          max = Math.max(max, inflight);
+          try {
+            const custom = answer?.(tool, args);
+            if (custom) return custom;
+            if (tool === "get_body_battery") return { kind: "json", data: bbRange(String(args.start_date), String(args.end_date)) };
+            return await sess.call(tool, args);
+          } finally {
+            inflight--;
+          }
+        },
+        close: () => sess.close(),
+      };
+    };
+    return { fake, connect, maxInflight: () => max };
+  }
+  const perDayDates = (f: { calls: { tool: string; args: Record<string, unknown> }[] }, from = 0) => f.calls.slice(from).filter((c) => PER_DAY.includes(c.tool) && "date" in c.args).map((c) => String(c.args.date));
+  const initial = async () => {
+    const w = watched();
+    await run({ db: handle.db, connect: w.connect, now: at(0) });
+    return w;
+  };
+  const readingsState = () => handle.db.select().from(settings).where(eq(settings.key, "garmin_readings_backfill")).get()?.value as { windows: { from: string; to: string; done: boolean }[]; empty: Record<string, string[]>; through: string };
+
+  it("A: the first run still fills 28 days of all five kinds, two calls at a time, and records how far windows reach", async () => {
+    const w = watched();
+    const res = await run({ db: handle.db, connect: w.connect, now: at(0) });
+    expect(res.readingsBackfill).toEqual({ pending: 0, doneThisRun: 2, failedWindow: null });
+    for (const k of KINDS) expect(stored(k).size, k).toBe(28);
+    expect(w.maxInflight()).toBeLessThanOrEqual(2);
+    expect(readingsState().through).toBe(TODAY);
+    expect(readingsState().windows.map((x) => [x.from, x.to])).toEqual([[day(-13), day(0)], [day(-27), day(-14)]]);
+  });
+
+  it("B: after a two day outage the next working run fetches the two missed days, and only those", async () => {
+    await initial();
+    // Pulse or Garmin was down on days 1 and 2. Nothing ran. Day 3 works.
+    const w = watched();
+    const res = await run({ db: handle.db, connect: w.connect, now: at(3) });
+    expect(res.readingsBackfill).toMatchObject({ pending: 0, doneThisRun: 1, failedWindow: null });
+    for (const k of KINDS) for (const d of [day(1), day(2), day(3)]) expect(stored(k).has(d), `${k} ${d}`).toBe(true);
+    // Per-day calls: today's routine pass, plus exactly the two missed days. Nothing older is asked for.
+    expect([...new Set(perDayDates(w.fake))].sort()).toEqual([day(1), day(2), day(3)]);
+    expect(readingsState().through).toBe(day(2));
+  });
+
+  it("B: an outage where Garmin answers with errors does not lose the days either", async () => {
+    await initial();
+    const down = watched((tool) => ({ kind: "message", text: `Error retrieving ${tool}: Garmin is down` }));
+    await run({ db: handle.db, connect: down.connect, now: at(1) });
+    await run({ db: handle.db, connect: down.connect, now: at(2) });
+    const up = watched();
+    await run({ db: handle.db, connect: up.connect, now: at(3) });
+    for (const k of KINDS) for (const d of [day(1), day(2)]) expect(stored(k).has(d), `${k} ${d}`).toBe(true);
+  });
+
+  it("C: a gap longer than 28 days is caught up over several runs, two windows at most per run, with no day skipped", async () => {
+    await initial();
+    const gap = 59; // days 1 to 59 missing, today is day 60
+    const runs: { done: number; pending: number }[] = [];
+    let maxInflight = 0;
+    for (let i = 0; i < 4; i++) {
+      const w = watched();
+      const before = w.fake.calls.length;
+      const res = await run({ db: handle.db, connect: w.connect, now: at(gap + 1) });
+      maxInflight = Math.max(maxInflight, w.maxInflight());
+      runs.push({ done: res.readingsBackfill?.doneThisRun ?? 0, pending: res.readingsBackfill?.pending ?? 0 });
+      // However long the gap, one run asks for at most 2 windows of 14 days per kind.
+      expect(new Set(perDayDates(w.fake, before)).size).toBeLessThanOrEqual(28 + 1);
+    }
+    expect(runs).toEqual([{ done: 2, pending: 3 }, { done: 2, pending: 1 }, { done: 1, pending: 0 }, { done: 0, pending: 0 }]);
+    for (const k of KINDS) for (let n = 1; n <= gap + 1; n++) expect(stored(k).has(day(n)), `${k} day ${n}`).toBe(true);
+    expect(maxInflight).toBeLessThanOrEqual(2);
+  });
+
+  it("C: the newest missed days come first, so an interrupted catch-up has the recent days", async () => {
+    await initial();
+    const w = watched();
+    await run({ db: handle.db, connect: w.connect, now: at(60) });
+    expect(stored("sleep").has(day(59))).toBe(true);
+    expect(stored("sleep").has(day(32))).toBe(true);
+    expect(stored("sleep").has(day(31))).toBe(false);
+  });
+
+  it("D: stored days are not fetched again, known empty days (older than 2 days) are not asked for again, and repeated runs add no rows", async () => {
+    await initial();
+    const noHrv = (tool: string, args: Record<string, unknown>): GarminResult | null => (tool === "get_hrv_data" && args.date === day(1) ? { kind: "message", text: "No HRV data found" } : null);
+    await run({ db: handle.db, connect: watched(noHrv).connect, now: at(4) });
+    expect(stored("hrv").has(day(1))).toBe(false);
+    expect(readingsState().empty.hrv).toContain(day(1));
+    const rowsAfter = handle.db.select().from(garminSnapshot).all().length;
+    for (let i = 0; i < 2; i++) {
+      const again = watched(noHrv);
+      await run({ db: handle.db, connect: again.connect, now: () => new Date(`${day(4)}T1${i}:00:00Z`) });
+      expect(perDayDates(again.fake).filter((d) => d !== day(4))).toEqual([]);
+      expect(again.fake.calls.filter((c) => c.tool === "get_hrv_data" && c.args.date === day(1))).toHaveLength(0);
+    }
+    expect(handle.db.select().from(garminSnapshot).all().length).toBe(rowsAfter);
+  });
+
+  it("E: a failed catch-up window keeps what was stored, is retried alone, and other kinds carry on", async () => {
+    await initial();
+    let fail = true;
+    const w = watched((tool, args) => (fail && tool === "get_sleep_summary" && args.date === day(2) ? { kind: "message", text: "Error retrieving sleep: boom" } : null));
+    const res = await run({ db: handle.db, connect: w.connect, now: at(3) });
+    expect(res.readingsBackfill?.failedWindow).toBe(`${day(1)} to ${day(2)}`);
+    expect(res.readingsBackfill?.pending).toBe(1);
+    expect(res.partial).toBe(false);
+    // The other kinds were stored, including body battery, whatever happened to sleep.
+    for (const k of ["training_readiness", "hrv", "rhr", "body_battery"]) for (const d of [day(1), day(2)]) expect(stored(k).has(d), `${k} ${d}`).toBe(true);
+    expect(stored("sleep").has(day(1))).toBe(true);
+    expect(stored("sleep").has(day(2))).toBe(false);
+    fail = false;
+    const again = watched();
+    const res2 = await run({ db: handle.db, connect: again.connect, now: () => new Date(`${day(3)}T13:30:00Z`) });
+    expect(res2.readingsBackfill).toMatchObject({ pending: 0, failedWindow: null });
+    expect(stored("sleep").has(day(2))).toBe(true);
+    // Only the missing sleep day is asked for again.
+    expect(again.fake.calls.filter((c) => PER_DAY.includes(c.tool) && c.args.date !== day(3)).map((c) => [c.tool, c.args.date])).toEqual([["get_sleep_summary", day(2)]]);
+  });
+
+  it("F: today's readings still sync, and the history import range is left alone", async () => {
+    await initial();
+    const range = { state: "complete", days: 730, startedAt: "2026-11-01T09:00:00.000Z", rangeFrom: "2024-11-03", rangeTo: "2026-11-01" };
+    handle.db.insert(settings).values({ key: "history_import", value: range }).run();
+    await run({ db: handle.db, connect: watched().connect, now: at(5) });
+    for (const k of KINDS) expect(stored(k).has(day(5)), k).toBe(true);
+    expect(handle.db.select().from(settings).where(eq(settings.key, "history_import")).get()?.value).toEqual(range);
+  });
+
+  it("F: a state saved before D74 (no through) continues from its newest window", async () => {
+    await initial();
+    const s = readingsState();
+    const legacy: Record<string, unknown> = { ...s };
+    delete legacy.through;
+    handle.db.update(settings).set({ value: legacy }).where(eq(settings.key, "garmin_readings_backfill")).run();
+    const w = watched();
+    await run({ db: handle.db, connect: w.connect, now: at(2) });
+    expect(stored("rhr").has(day(1))).toBe(true);
+    expect(readingsState().through).toBe(day(1));
+    expect([...new Set(perDayDates(w.fake))].sort()).toEqual([day(1), day(2)]);
+  });
+
+  it("G: catch-up calls keep the retry waits of 10 and 30 seconds and never exceed two in flight", async () => {
+    await initial();
+    const waits: number[] = [];
+    let hrvCalls = 0;
+    const w = watched((tool, args) => (tool === "get_hrv_data" && args.date === day(1) ? (hrvCalls++, { kind: "message", text: "Error retrieving hrv: Read timed out" }) : null));
+    const res = await run({ db: handle.db, connect: w.connect, now: at(2), sleep: async (ms) => void (ms !== BACKFILL_PAUSE_MS && waits.push(ms)) });
+    expect(waits).toEqual([10_000, 30_000]);
+    expect(hrvCalls).toBe(3);
+    expect(res.readingsBackfill?.failedWindow).toBe(`${day(1)} to ${day(1)}`);
+    expect(w.maxInflight()).toBeLessThanOrEqual(2);
+  });
+
+  it("recency guard: a no-data answer for yesterday is not recorded as empty, is asked again, and once data arrives it is stored and left alone", async () => {
+    await initial();
+    let hrvAsks = 0;
+    let available = false;
+    const answer = (tool: string, args: Record<string, unknown>): GarminResult | null => {
+      if (tool !== "get_hrv_data" || args.date !== day(2)) return null;
+      hrvAsks++;
+      return available ? null : { kind: "message", text: "No HRV data found" };
+    };
+    const w1 = watched(answer);
+    const r1 = await run({ db: handle.db, connect: w1.connect, now: at(3) });
+    expect(hrvAsks).toBe(1);
+    expect(readingsState().empty.hrv ?? []).not.toContain(day(2));
+    expect(stored("hrv").has(day(2))).toBe(false);
+    // The window stays open, and a held window is not a failure.
+    expect(r1.readingsBackfill).toMatchObject({ pending: 1, failedWindow: null });
+    const w2 = watched(answer);
+    await run({ db: handle.db, connect: w2.connect, now: () => new Date(`${day(3)}T14:00:00Z`) });
+    expect(hrvAsks).toBe(2);
+    available = true;
+    const w3 = watched(answer);
+    const r3 = await run({ db: handle.db, connect: w3.connect, now: () => new Date(`${day(3)}T16:00:00Z`) });
+    expect(hrvAsks).toBe(3);
+    expect(stored("hrv").has(day(2))).toBe(true);
+    expect(r3.readingsBackfill).toMatchObject({ pending: 0, failedWindow: null });
+    const w4 = watched(answer);
+    await run({ db: handle.db, connect: w4.connect, now: () => new Date(`${day(3)}T18:00:00Z`) });
+    expect(hrvAsks).toBe(3);
+    expect(perDayDates(w4.fake).filter((d) => d !== day(3))).toEqual([]);
+  });
+
+  it("recency guard: a no-data answer for a day older than 2 days is recorded as empty and not asked again", async () => {
+    await initial();
+    let asks = 0;
+    const answer = (tool: string, args: Record<string, unknown>): GarminResult | null => (tool === "get_hrv_data" && args.date === day(1) ? (asks++, { kind: "message", text: "No HRV data found" }) : null);
+    // Day 1 is the third day back from day 3 (still recent), and older from day 4.
+    await run({ db: handle.db, connect: watched(answer).connect, now: at(3) });
+    expect(readingsState().empty.hrv ?? []).not.toContain(day(1));
+    await run({ db: handle.db, connect: watched(answer).connect, now: at(4) });
+    expect(readingsState().empty.hrv).toContain(day(1));
+    const before = asks;
+    await run({ db: handle.db, connect: watched(answer).connect, now: at(5) });
+    await run({ db: handle.db, connect: watched(answer).connect, now: at(5) });
+    expect(asks).toBe(before);
+    expect(stored("hrv").has(day(1))).toBe(false);
+  });
+
+  it("recency guard: calls per run stay bounded when Garmin keeps saying no data, and never more than two at a time", async () => {
+    await initial();
+    const none = (tool: string): GarminResult | null => (PER_DAY.includes(tool) || tool === "get_body_battery" ? { kind: "message", text: "No data found" } : null);
+    for (let i = 0; i < 3; i++) {
+      const w = watched(none);
+      let calls = 0;
+      const counting = async () => {
+        const s = await w.connect();
+        return { call: (t: Parameters<typeof s.call>[0], a: Record<string, unknown>) => (calls++, s.call(t, a)), close: () => s.close() };
+      };
+      await run({ db: handle.db, connect: counting, now: () => new Date(`${day(3)}T1${i}:00:00Z`) });
+      // The routine pass is about 20 calls. The held days (2 and 1 are the last two before today, 3 is today) add at most
+      // 2 days x 4 per-day kinds + 1 body battery call, never a whole window.
+      const readingCalls = w.fake.calls.length;
+      expect(readingCalls).toBeLessThanOrEqual(30);
+      expect(calls).toBeGreaterThan(0);
+      expect(w.maxInflight()).toBeLessThanOrEqual(2);
+    }
+    expect(readingsState().empty.hrv ?? []).toEqual([]);
   });
 });
