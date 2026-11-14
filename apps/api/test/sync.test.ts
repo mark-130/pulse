@@ -576,19 +576,23 @@ describe("readings catch-up after an outage (D74, PULSE-009)", () => {
     expect(stored("hrv").has(day(2))).toBe(false);
     // The window stays open, and a held window is not a failure.
     expect(r1.readingsBackfill).toMatchObject({ pending: 1, failedWindow: null });
+    // Inside the 6 hour cooldown (D75) it is not asked again.
+    await run({ db: handle.db, connect: watched(answer).connect, now: () => new Date(`${day(3)}T14:00:00Z`) });
+    expect(hrvAsks).toBe(1);
+    // Past the cooldown it is.
     const w2 = watched(answer);
-    await run({ db: handle.db, connect: w2.connect, now: () => new Date(`${day(3)}T14:00:00Z`) });
+    await run({ db: handle.db, connect: w2.connect, now: () => new Date(`${day(3)}T19:00:00Z`) });
     expect(hrvAsks).toBe(2);
     available = true;
     const w3 = watched(answer);
-    const r3 = await run({ db: handle.db, connect: w3.connect, now: () => new Date(`${day(3)}T16:00:00Z`) });
+    const r3 = await run({ db: handle.db, connect: w3.connect, now: () => new Date(`${day(4)}T02:00:00Z`) });
     expect(hrvAsks).toBe(3);
     expect(stored("hrv").has(day(2))).toBe(true);
     expect(r3.readingsBackfill).toMatchObject({ pending: 0, failedWindow: null });
     const w4 = watched(answer);
-    await run({ db: handle.db, connect: w4.connect, now: () => new Date(`${day(3)}T18:00:00Z`) });
+    await run({ db: handle.db, connect: w4.connect, now: () => new Date(`${day(4)}T09:00:00Z`) });
     expect(hrvAsks).toBe(3);
-    expect(perDayDates(w4.fake).filter((d) => d !== day(3))).toEqual([]);
+    expect(perDayDates(w4.fake).filter((d) => d !== day(4))).toEqual([]);
   });
 
   it("recency guard: a no-data answer for a day older than 2 days is recorded as empty and not asked again", async () => {
@@ -626,5 +630,210 @@ describe("readings catch-up after an outage (D74, PULSE-009)", () => {
       expect(w.maxInflight()).toBeLessThanOrEqual(2);
     }
     expect(readingsState().empty.hrv ?? []).toEqual([]);
+  });
+});
+
+describe("retry cooldown for recent no-data readings (D75, PULSE-010)", () => {
+  const day = (n: number) => addDays(TODAY, n);
+  const at = (n: number, hhmm = "12:30") => () => new Date(`${day(n)}T${hhmm}:00Z`);
+  const PER_DAY = ["get_training_readiness", "get_sleep_summary", "get_hrv_data", "get_rhr_day"];
+  const stored = (kind: string) => new Set(handle.db.select().from(garminSnapshot).all().filter((r) => r.kind === kind).map((r) => r.date));
+  const state = () => handle.db.select().from(settings).where(eq(settings.key, "garmin_readings_backfill")).get()?.value as { empty: Record<string, string[]>; retryAfter?: Record<string, string> };
+  const bbRange = (start: string, end: string) => {
+    const out: { date: string; charged: number; drained: number }[] = [];
+    for (let d = start; d <= end; d = addDays(d, 1)) out.push({ date: d, charged: 50, drained: 40 });
+    return out;
+  };
+  /** Garmin with a call log. `hold` says which kind and date answer "no data". Body battery answers by range. */
+  function garmin(hold: (tool: string, date: string) => boolean) {
+    const fake = fakeGarmin();
+    const calls: { tool: string; args: Record<string, unknown> }[] = [];
+    let inflight = 0;
+    let max = 0;
+    const connect: GarminConnector = async () => {
+      const sess = await fake.connect();
+      return {
+        async call(tool, args) {
+          calls.push({ tool, args });
+          inflight++;
+          max = Math.max(max, inflight);
+          try {
+            if (tool === "get_body_battery") {
+              const all = bbRange(String(args.start_date), String(args.end_date));
+              const data = all.filter((e) => !hold(tool, e.date));
+              return data.length === 0 ? { kind: "message", text: "No body battery data" } : { kind: "json", data };
+            }
+            if (PER_DAY.includes(tool) && typeof args.date === "string" && hold(tool, args.date)) return { kind: "message", text: "No data found" };
+            return await sess.call(tool, args);
+          } finally {
+            inflight--;
+          }
+        },
+        close: () => sess.close(),
+      };
+    };
+    return { calls, connect, maxInflight: () => max };
+  }
+  const asks = (g: { calls: { tool: string; args: Record<string, unknown> }[] }, tool: string, date: string) => g.calls.filter((c) => c.tool === tool && c.args.date === date).length;
+  const bbAsks = (g: { calls: { tool: string; args: Record<string, unknown> }[] }) => g.calls.filter((c) => c.tool === "get_body_battery" && c.args.start_date !== c.args.end_date).length;
+  const initial = () => run({ db: handle.db, connect: garmin(() => false).connect, now: at(0) });
+  // Yesterday (day 2 seen from day 3) is a recent day that a catch-up window covers.
+  const sleepHeld = (tool: string, d: string) => tool === "get_sleep_summary" && d === day(2);
+
+  it("does not ask again for a recent no-data reading on every 30 minute run, and records when it may", async () => {
+    await initial();
+    const first = garmin(sleepHeld);
+    await run({ db: handle.db, connect: first.connect, now: at(3, "12:30") });
+    expect(asks(first, "get_sleep_summary", day(2))).toBe(1);
+    expect(state().retryAfter?.[`sleep|${day(2)}`]).toBe(`${day(3)}T18:30:00.000Z`);
+    for (const t of ["13:00", "13:30", "17:30", "18:29"]) {
+      const g = garmin(sleepHeld);
+      await run({ db: handle.db, connect: g.connect, now: at(3, t) });
+      expect(asks(g, "get_sleep_summary", day(2)), t).toBe(0);
+    }
+    // Not recorded as known empty: it stays recoverable.
+    expect(state().empty.sleep ?? []).not.toContain(day(2));
+  });
+
+  it("asks again once the cooldown has expired, and stores the reading when it has arrived", async () => {
+    await initial();
+    await run({ db: handle.db, connect: garmin(sleepHeld).connect, now: at(3, "12:30") });
+    const still = garmin(sleepHeld);
+    await run({ db: handle.db, connect: still.connect, now: at(3, "18:30") });
+    expect(asks(still, "get_sleep_summary", day(2))).toBe(1);
+    expect(state().retryAfter?.[`sleep|${day(2)}`]).toBe(`${day(4)}T00:30:00.000Z`);
+    const ready = garmin(() => false);
+    await run({ db: handle.db, connect: ready.connect, now: at(4, "01:00") });
+    expect(asks(ready, "get_sleep_summary", day(2))).toBe(1);
+    expect(stored("sleep").has(day(2))).toBe(true);
+    expect(state().retryAfter?.[`sleep|${day(2)}`]).toBeUndefined();
+  });
+
+  it("keeps a stored reading and retries only the kind that is still missing", async () => {
+    await initial();
+    const hrvHeld = (tool: string, d: string) => tool === "get_hrv_data" && d === day(2);
+    // Sleep is held first, then arrives while HRV is still missing.
+    await run({ db: handle.db, connect: garmin((t, d) => sleepHeld(t, d) || hrvHeld(t, d)).connect, now: at(3, "12:30") });
+    const g = garmin(hrvHeld);
+    await run({ db: handle.db, connect: g.connect, now: at(3, "19:00") });
+    expect(stored("sleep").has(day(2))).toBe(true);
+    expect(stored("hrv").has(day(2))).toBe(false);
+    expect(asks(g, "get_sleep_summary", day(2))).toBe(1);
+    expect(asks(g, "get_hrv_data", day(2))).toBe(1);
+    // Later, after sleep is stored and while HRV is cooling, only the day's other calls are left: neither kind is asked.
+    const later = garmin(hrvHeld);
+    await run({ db: handle.db, connect: later.connect, now: at(3, "19:30") });
+    expect(asks(later, "get_sleep_summary", day(2))).toBe(0);
+    expect(asks(later, "get_hrv_data", day(2))).toBe(0);
+    expect(asks(later, "get_training_readiness", day(2))).toBe(0);
+    expect(asks(later, "get_rhr_day", day(2))).toBe(0);
+  });
+
+  it("applies the same cooldown to body battery's ranged call", async () => {
+    await initial();
+    const bbHeld = (tool: string, d: string) => tool === "get_body_battery" && d === day(2);
+    // Held means the range answers without that day. Days 1 and 3 do arrive, so the call is made once for the window.
+    const first = garmin(bbHeld);
+    await run({ db: handle.db, connect: first.connect, now: at(3, "12:30") });
+    expect(bbAsks(first)).toBe(1);
+    expect(state().retryAfter?.[`body_battery|${day(2)}`]).toBeDefined();
+    expect(stored("body_battery").has(day(1))).toBe(true);
+    const inside = garmin(bbHeld);
+    await run({ db: handle.db, connect: inside.connect, now: at(3, "13:00") });
+    expect(bbAsks(inside)).toBe(0);
+    const after = garmin(bbHeld);
+    await run({ db: handle.db, connect: after.connect, now: at(3, "19:00") });
+    expect(bbAsks(after)).toBe(1);
+    // If the cooling day appears in a call made for another reason, it is stored.
+    expect(stored("body_battery").has(day(2))).toBe(false);
+    const ready = garmin(() => false);
+    await run({ db: handle.db, connect: ready.connect, now: at(4, "02:00") });
+    expect(stored("body_battery").has(day(2))).toBe(true);
+  });
+
+  it("makes no call and no pause for a window whose missing days are all cooling", async () => {
+    await initial();
+    const none = (tool: string, d: string) => (PER_DAY.includes(tool) || tool === "get_body_battery") && d === day(2);
+    await run({ db: handle.db, connect: garmin(none).connect, now: at(3, "12:30") });
+    const g = garmin(none);
+    const pauses: number[] = [];
+    await run({ db: handle.db, connect: g.connect, now: at(3, "13:00"), sleep: async (ms) => void (ms === BACKFILL_PAUSE_MS && pauses.push(ms)) });
+    expect(g.calls.filter((c) => c.args.date === day(2) || (c.tool === "get_body_battery" && c.args.start_date !== c.args.end_date))).toEqual([]);
+    expect(pauses).toEqual([]);
+  });
+
+  it("still catches up an outage longer than 28 days over bounded runs while recent days cool down", async () => {
+    await initial();
+    const held = (tool: string, d: string) => tool === "get_hrv_data" && d === day(59);
+    const done: number[] = [];
+    let maxInflight = 0;
+    for (let i = 0; i < 4; i++) {
+      const g = garmin(held);
+      const res = await run({ db: handle.db, connect: g.connect, now: () => new Date(`${day(60)}T1${i}:00:00Z`) });
+      done.push(res.readingsBackfill?.doneThisRun ?? 0);
+      maxInflight = Math.max(maxInflight, g.maxInflight());
+      expect(res.readingsBackfill?.doneThisRun ?? 0).toBeLessThanOrEqual(2);
+    }
+    // Five windows: the one holding the cooling day stays open and takes no share of the two per run, the other four finish.
+    expect(done).toEqual([2, 2, 0, 0]);
+    for (const k of ["training_readiness", "sleep", "rhr", "body_battery"]) for (let n = 1; n <= 60; n++) expect(stored(k).has(day(n)), `${k} ${day(n)}`).toBe(true);
+    for (let n = 1; n <= 60; n++) if (n !== 59) expect(stored("hrv").has(day(n)), `hrv ${day(n)}`).toBe(true);
+    expect(maxInflight).toBeLessThanOrEqual(2);
+    // The held day was asked for once only in these hour-apart runs, and stays recoverable.
+    expect(state().empty.hrv ?? []).not.toContain(day(59));
+  });
+
+  it("does not fetch stored or known-empty dates again, and adds no rows", async () => {
+    await initial();
+    const old = (tool: string, d: string) => tool === "get_rhr_day" && d === day(1);
+    await run({ db: handle.db, connect: garmin(old).connect, now: at(5, "12:30") });
+    expect(state().empty.rhr).toContain(day(1));
+    const rows = handle.db.select().from(garminSnapshot).all().length;
+    const g = garmin(old);
+    await run({ db: handle.db, connect: g.connect, now: at(5, "20:00") });
+    expect(g.calls.filter((c) => PER_DAY.includes(c.tool) && c.args.date !== day(5))).toEqual([]);
+    expect(handle.db.select().from(garminSnapshot).all().length).toBe(rows);
+  });
+
+  it("keeps the retry waits of 10 and 30 seconds and the limit of two calls at a time", async () => {
+    await initial();
+    const fake = fakeGarmin();
+    let hrvCalls = 0;
+    let inflight = 0;
+    let max = 0;
+    const connect: GarminConnector = async () => {
+      const sess = await fake.connect();
+      return {
+        async call(tool, args) {
+          inflight++;
+          max = Math.max(max, inflight);
+          try {
+            if (tool === "get_hrv_data" && args.date === day(2)) return (hrvCalls++, { kind: "message", text: "Error retrieving hrv: Read timed out" } as GarminResult);
+            if (tool === "get_body_battery") return { kind: "json", data: bbRange(String(args.start_date), String(args.end_date)) };
+            return await sess.call(tool, args);
+          } finally {
+            inflight--;
+          }
+        },
+        close: () => sess.close(),
+      };
+    };
+    const waits: number[] = [];
+    const res = await run({ db: handle.db, connect, now: at(3), sleep: async (ms) => void (ms !== BACKFILL_PAUSE_MS && waits.push(ms)) });
+    expect(waits).toEqual([10_000, 30_000]);
+    expect(hrvCalls).toBe(3);
+    expect(res.readingsBackfill?.failedWindow).toBe(`${day(1)} to ${day(2)}`);
+    expect(max).toBeLessThanOrEqual(2);
+    // A failure is not a no-data answer, so it gets no cooldown and is retried on the next run.
+    expect(state().retryAfter?.[`hrv|${day(2)}`]).toBeUndefined();
+  });
+
+  it("leaves the history import range alone", async () => {
+    await initial();
+    const range = { state: "complete", days: 730, startedAt: "2026-11-01T09:00:00.000Z", rangeFrom: "2024-11-03", rangeTo: "2026-11-01" };
+    handle.db.insert(settings).values({ key: "history_import", value: range }).run();
+    await run({ db: handle.db, connect: garmin(sleepHeld).connect, now: at(3) });
+    await run({ db: handle.db, connect: garmin(sleepHeld).connect, now: at(3, "19:00") });
+    expect(handle.db.select().from(settings).where(eq(settings.key, "history_import")).get()?.value).toEqual(range);
   });
 });

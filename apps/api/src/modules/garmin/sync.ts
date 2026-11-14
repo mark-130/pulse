@@ -384,6 +384,8 @@ export const READINGS_CONCURRENCY = 2;
 export const READINGS_WINDOWS_PER_RUN = 2;
 /** A day this recent (today, yesterday, the day before) that Garmin has no data for is asked for again on later runs (D74). */
 export const READINGS_RECENT_DAYS = 3;
+/** After a recent "no data" answer a reading is not asked for again for this long (D75). The sync runs every 30 minutes. */
+export const READINGS_RETRY_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const READINGS_KEY = "garmin_readings_backfill";
 
 const READING_TASKS = [
@@ -399,6 +401,8 @@ interface ReadingsState {
   empty: Record<string, string[]>;
   /** The newest day windows have been made for (D74). Absent on a state from before D74: see loadReadingsState. */
   through?: string;
+  /** Earliest time (UTC ISO) a recent no-data reading may be asked for again, keyed "kind|date" (D75). Absent on older states. */
+  retryAfter?: Record<string, string>;
 }
 
 /**
@@ -474,19 +478,45 @@ async function runReadingsBackfill(session: GarminSession, state: ReadingsState,
   for (const w of state.windows) {
     if (w.done) continue;
     if (doneThisRun >= READINGS_WINDOWS_PER_RUN) break;
-    if (ran++ > 0) await retry.sleep(BACKFILL_PAUSE_MS);
     const have = new Set(ctx.db.select({ kind: garminSnapshot.kind, date: garminSnapshot.date }).from(garminSnapshot).where(and(inArray(garminSnapshot.kind, kinds), gte(garminSnapshot.date, w.from), lte(garminSnapshot.date, w.to))).all().map((r) => `${r.kind}|${r.date}`));
     const isEmpty = (kind: string, d: string) => state.empty[kind]?.includes(d) ?? false;
     // A "no data" answer for the last few days is not final: the watch may not have synced yet (D74). Those days are not recorded as
     // empty and the window stays open, so the next run asks again. Older days are recorded as empty, as before.
     let held = false;
+    const retryAfter = (state.retryAfter ??= {});
+    const nowMs = Date.parse(ctx.nowIso);
+    const cooling = (kind: string, d: string) => {
+      const until = retryAfter[`${kind}|${d}`];
+      return until !== undefined && Date.parse(until) > nowMs;
+    };
     const markEmpty = (kind: string, d: string) => {
-      if (d >= recentFrom) held = true;
-      else state.empty[kind] = [...(state.empty[kind] ?? []), d];
+      if (d >= recentFrom) {
+        held = true;
+        retryAfter[`${kind}|${d}`] = new Date(nowMs + READINGS_RETRY_COOLDOWN_MS).toISOString();
+      } else {
+        state.empty[kind] = [...(state.empty[kind] ?? []), d];
+        delete retryAfter[`${kind}|${d}`];
+      }
+    };
+    const stored = (kind: string, d: string, data: unknown) => {
+      upsertSnapshot(ctx, kind, d, data);
+      delete retryAfter[`${kind}|${d}`];
     };
     let failed = false;
 
-    const jobs = READING_TASKS.flatMap((t) => daysIn(w.from, w.to).filter((d) => !have.has(`${t.kind}|${d}`) && !isEmpty(t.kind, d)).map((d) => ({ t, d })));
+    // Days still cooling down after a recent no-data answer are not asked for (D75). Each kind and day cools on its own.
+    const wanted = READING_TASKS.flatMap((t) => daysIn(w.from, w.to).filter((d) => !have.has(`${t.kind}|${d}`) && !isEmpty(t.kind, d)).map((d) => ({ t, d })));
+    const jobs = wanted.filter(({ t, d }) => !cooling(t.kind, d));
+    const bbOpen = daysIn(w.from, w.to).filter((d) => !have.has(`body_battery|${d}`) && !isEmpty("body_battery", d));
+    const missingBb = bbOpen.filter((d) => !cooling("body_battery", d));
+    const waiting = wanted.length - jobs.length + bbOpen.length - missingBb.length > 0;
+    if (waiting) held = true;
+    if (jobs.length === 0 && missingBb.length === 0 && waiting) {
+      // Nothing to ask Garmin for: everything missing is cooling down. The window stays open, with no call and no pause.
+      continue;
+    }
+    if (ran++ > 0) await retry.sleep(BACKFILL_PAUSE_MS);
+
     await pool(jobs, READINGS_CONCURRENCY, async ({ t, d }) => {
       try {
         const res = await callWithRetry(session, t.tool, { date: d }, retry);
@@ -496,14 +526,14 @@ async function runReadingsBackfill(session: GarminSession, state: ReadingsState,
           return;
         }
         if (!t.schema.safeParse(res.data).success) return markEmpty(t.kind, d);
-        upsertSnapshot(ctx, t.kind, d, res.data);
+        stored(t.kind, d, res.data);
       } catch {
         failed = true;
       }
     });
 
     // Body battery is one ranged call for the window. Its days are stored one snapshot each, in the same one entry array shape.
-    const missingBb = daysIn(w.from, w.to).filter((d) => !have.has(`body_battery|${d}`) && !isEmpty("body_battery", d));
+    // A day still cooling down is not a reason to call, but if the call is made for other days its data is stored too.
     if (missingBb.length > 0) {
       try {
         const res = await callWithRetry(session, "get_body_battery", { start_date: w.from, end_date: w.to }, retry);
@@ -514,10 +544,10 @@ async function runReadingsBackfill(session: GarminSession, state: ReadingsState,
           const parsed = up.bodyBatterySchema.safeParse(res.data);
           if (!parsed.success) for (const d of missingBb) markEmpty("body_battery", d);
           else {
-            for (const d of missingBb) {
+            for (const d of bbOpen) {
               const entry = parsed.data.find((e) => e.date === d);
-              if (entry) upsertSnapshot(ctx, "body_battery", d, [entry]);
-              else markEmpty("body_battery", d);
+              if (entry) stored("body_battery", d, [entry]);
+              else if (!cooling("body_battery", d)) markEmpty("body_battery", d);
             }
           }
         }
